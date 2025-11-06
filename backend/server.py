@@ -675,6 +675,7 @@ def extract_orbital_params(nasa_data):
     return params
 
 
+
 def extract_host_star_data(nasa_data, simbad_data):
     """Extract host star data"""
     star_data = {}
@@ -694,7 +695,7 @@ def extract_host_star_data(nasa_data, simbad_data):
     
     if simbad_data:
         star_data.update({
-            "simbad_type": simbad_data.get('otype'),
+          "simbad_type": simbad_data.get('otype'),
             "coordinates": simbad_data.get('coord'),
         })
     
