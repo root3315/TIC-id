@@ -109,7 +109,7 @@ ollama push gemma3
 
 ## Лицензия
 
-[MIT License](MIT License)
+[MIT License](LICENSE)
 
 ---
 
