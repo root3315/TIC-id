@@ -1,4 +1,4 @@
-![ExoVision]([https://github.com/root3315/TIC-id/blob/main/banner.png])
+[ExoVision]([https://github.com/root3315/TIC-id/blob/main/banner.png])
 ````markdown
 # 🚀 ExoVision — AI-анализ экзопланет с реальными изображениями и оценкой обитаемости
 
