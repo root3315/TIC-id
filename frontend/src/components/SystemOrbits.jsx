@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
-import { starColor } from "@/lib/format";
+import { fmtSig, starColor } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { AU_PER_SOLAR_RADIUS, inHabitableZone, planetDotRadius, planetLetter } from "@/lib/systemScale";
 
 const GOLDEN_ANGLE = 2.39996;
@@ -10,6 +11,11 @@ const INNER_ORBIT_SECONDS = 6;
  * периодов), а повороты орбит условные: в каталоге нет аргумента перицентра.
  */
 const SystemOrbits = ({ star, planets, hz, height = 360, centerX = 0.5 }) => {
+  const t = useT();
+  // подпись зоны: на кольце, если оно в кадре, иначе стрелкой у края с расстоянием
+  const hzText = t("зона обитаемости", "habitable zone");
+  const hzFar = hz ? t(`зона обитаемости дальше: ${fmtSig(hz.inner_conservative, 2)}–${fmtSig(hz.outer_conservative, 2)} а.е. →`,
+    `habitable zone farther out: ${fmtSig(hz.inner_conservative, 2)}–${fmtSig(hz.outer_conservative, 2)} AU →`) : "";
   const canvasRef = useRef(null);
   const wrapRef = useRef(null);
 
@@ -80,6 +86,17 @@ const SystemOrbits = ({ star, planets, hz, height = 360, centerX = 0.5 }) => {
           ctx.arc(cx, cy, a * scale, 0, Math.PI * 2);
           ctx.stroke();
         });
+        ctx.font = "500 12px 'IBM Plex Sans', sans-serif";
+        ctx.fillStyle = habitable;
+        const edge = Math.min(cy, W - cx) - 6;
+        if (hz.inner_conservative * scale > edge) {
+          ctx.textAlign = "right";
+          ctx.fillText(hzFar, W - 8, cy + 4);
+        } else {
+          const ringR = hz.outer_conservative * scale < cy - 20 ? hz.outer_conservative : hz.inner_conservative;
+          ctx.textAlign = "center";
+          ctx.fillText(hzText, cx, cy - ringR * scale - 8);
+        }
       }
 
       ctx.lineWidth = 1;
@@ -155,7 +172,7 @@ const SystemOrbits = ({ star, planets, hz, height = 360, centerX = 0.5 }) => {
       cancelAnimationFrame(raf);
       ro.disconnect();
     };
-  }, [star, planets, hz, height, centerX]);
+  }, [star, planets, hz, height, centerX, hzText, hzFar]);
 
   return (
     <div ref={wrapRef} className="w-full">
