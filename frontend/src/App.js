@@ -4,6 +4,7 @@ import SearchPage from "@/pages/SearchPage";
 import ResultsPage from "@/pages/ResultsPage";
 import CatalogPage from "@/pages/CatalogPage";
 import AIDetectorPage from "@/pages/AIDetectorPage";
+import SystemPage from "@/pages/SystemPage";
 import Starfield from "@/components/Starfield";
 import NavBar from "@/components/NavBar";
 import { Toaster } from "@/components/ui/sonner";
@@ -22,6 +23,7 @@ function App() {
               <Route path="/catalog" element={<CatalogPage />} />
               <Route path="/results" element={<ResultsPage />} />
               <Route path="/ai-detector" element={<AIDetectorPage />} />
+              <Route path="/system" element={<SystemPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

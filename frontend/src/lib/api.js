@@ -70,3 +70,6 @@ export const getLightcurve = (target, period) =>
   api
     .get("/lightcurve", { params: { target, period: period || undefined }, timeout: 480000 })
     .then((r) => r.data);
+
+// Звезда и все её планеты: по имени хоста или по позиции на небе (ссылка из Muninn)
+export const getSystem = (params) => api.get("/system", { params }).then((r) => r.data);

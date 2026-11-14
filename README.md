@@ -56,7 +56,7 @@ python train_lc_torch.py    # двухветочная CNN формы транз
 
 ```bash
 cd backend
-python -m pytest test_smoke.py -q   # 20 быстрых проверок физики, скоринга и поиска
+python -m pytest -q                 # физика, скоринг, поиск, планетные системы
 ```
 
 ### 1. Клонируйте репозиторий
@@ -90,6 +90,9 @@ npm start
 ollama pull gemma3   # или любая другая модель
 ```
 
+Основной провайдер — Groq (`GROQ_API_KEY` в `backend/.env`), Ollama только запасной.
+На слабом сервере локальную модель можно выключить совсем: `OLLAMA_ENABLED=0`.
+
 ## 📡 API
 
 | Метод | Эндпоинт | Описание |
@@ -109,6 +112,39 @@ ollama pull gemma3   # или любая другая модель
 | `POST` | `/api/ml/classify` | Вероятность «планета vs ложноположительный» по параметрам |
 | `GET` | `/api/ml/toi` | Живые кандидаты TESS, ранжированные моделью |
 | `GET` | `/api/lightcurve?target=&period=` | Реальная кривая блеска + фолдинг + вердикты |
+| `GET` | `/api/system?ra=&dec=&radius=` или `?host=` | Звезда и все её планеты (по позиции или имени) |
+| `GET` | `/api/hosts` | Все звёзды с планетами: `[{h, ra, dec, n}]`, кэш сутки |
+
+## 🔭 Переход из Muninn
+
+[Muninn](https://muninn.mydevbox.xyz) показывает небо SPHEREx. Со звезды на его небе можно открыть её
+планетную систему здесь. О звезде Muninn знает только позицию (до 0,01°) и имя, поэтому связь идёт
+по координатам: ExoVision берёт ближайшую звезду с планетами в радиусе 90″.
+
+```
+https://<адрес ExoVision>/system?ra=<град>&dec=<град>&from=muninn&name=<имя на небе Muninn>
+```
+
+- `ra`, `dec` — J2000 в градусах; `name` — необязательно, только для подписи;
+- `from=muninn` добавляет ссылку «Назад к полю в Muninn» (адрес задаёт `REACT_APP_MUNINN_URL`,
+  из ссылки он не берётся);
+- если звезды с планетами рядом нет, страница так и скажет.
+
+Чтобы показывать кнопку только у звёзд с планетами, Muninn один раз берёт `/api/hosts` и сверяет
+позицию карточки с этим списком (на его небе до V 7 таких звёзд 236). Для этого `connect-src` в CSP
+Muninn должен разрешать адрес ExoVision; обычной ссылке CSP не мешает.
+
+Кусок для `showCard()` в `public/js/app.js` Muninn:
+
+```js
+if (hit.kind === 'star') {
+  const url = new URL('/system', EXOVISION_URL);
+  url.search = new URLSearchParams({
+    ra: hit.ra.toFixed(5), dec: hit.dec.toFixed(5), from: 'muninn', name: hit.label ?? '',
+  }).toString();
+  // показывать, только если звезда есть в /api/hosts в пределах 90″
+}
+```
 
 ## 📜 Лицензия
 
