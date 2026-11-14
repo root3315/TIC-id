@@ -1,5 +1,5 @@
 import "@/App.css";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import SearchPage from "@/pages/SearchPage";
 import ResultsPage from "@/pages/ResultsPage";
 import CatalogPage from "@/pages/CatalogPage";
@@ -10,12 +10,15 @@ import NavBar from "@/components/NavBar";
 import { Toaster } from "@/components/ui/sonner";
 import { LangProvider } from "@/lib/i18n";
 
+// На странице системы фон спокойный: там речь о настоящей звезде, выдуманное небо мешает
+const Backdrop = () => <Starfield calm={useLocation().pathname === "/system"} />;
+
 function App() {
   return (
     <LangProvider>
       <div className="App">
-        <Starfield />
         <BrowserRouter>
+          <Backdrop />
           <NavBar />
           <div className="relative" style={{ zIndex: 1 }}>
             <Routes>

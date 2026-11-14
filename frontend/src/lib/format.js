@@ -120,16 +120,26 @@ export const scoreColor = (score) => {
   return "#ef4444";
 };
 
-// Цвет звезды по эффективной температуре
+// Цвет звезды по эффективной температуре: опорные точки по чернотельному цвету,
+// чуть насыщеннее, чтобы K-гигант читался оранжевым, а не бежевым. Между точками —
+// линейная интерполяция, без ступенек на границах классов.
+const STAR_COLOR_STOPS = [
+  [2400, [255, 112, 52]], [3000, [255, 140, 72]], [3500, [255, 160, 88]],
+  [4000, [255, 182, 108]], [4500, [255, 202, 136]], [5000, [255, 218, 166]],
+  [5500, [255, 231, 196]], [6000, [255, 241, 224]], [7000, [244, 243, 255]],
+  [8500, [222, 230, 255]], [10000, [204, 216, 255]], [20000, [176, 197, 255]],
+  [40000, [155, 176, 255]],
+];
+
 export const starColor = (teff) => {
-  if (!teff) return "#ffd9a0";
-  if (teff > 30000) return "#9bb0ff";
-  if (teff > 10000) return "#cad7ff";
-  if (teff > 7500) return "#f8f7ff";
-  if (teff > 6000) return "#fff4ea";
-  if (teff > 5200) return "#ffedd2";
-  if (teff > 3700) return "#ffcc6f";
-  return "#ff8f5e";
+  if (!teff) return "#ffda9e";
+  const stops = STAR_COLOR_STOPS;
+  const t = Math.min(Math.max(teff, stops[0][0]), stops[stops.length - 1][0]);
+  const i = Math.max(1, stops.findIndex(([k]) => k >= t));
+  const [t0, c0] = stops[i - 1];
+  const [t1, c1] = stops[i];
+  const f = t1 === t0 ? 0 : (t - t0) / (t1 - t0);
+  return `#${c0.map((v, k) => Math.round(v + (c1[k] - v) * f).toString(16).padStart(2, "0")).join("")}`;
 };
 
 export const spectralClassOf = (teff) => {
