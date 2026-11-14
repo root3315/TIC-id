@@ -86,22 +86,23 @@ const LoadingScreen = ({ title, stages, stage }) => {
   const progress = Math.min(95, ((stage + 0.7) / stages.length) * 100);
 
   return (
-    <div className="min-h-screen pt-14 flex items-center justify-center px-4">
+    <div className="min-h-screen pt-20 pb-8 flex items-center justify-center px-4">
       <motion.div
         initial={{ opacity: 0, scale: 0.96 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="card-glow rounded-3xl p-8 sm:p-10 max-w-lg w-full"
+        className="card-glow rounded-3xl px-6 py-6 sm:px-9 sm:py-7 max-w-lg w-full"
       >
-        <div className="flex justify-center mb-2">
+        {/* мини-система в 0,8 размера: карточка не упирается в края окна */}
+        <div className="flex justify-center -my-3 scale-[0.8]">
           <OrbitLoader />
         </div>
         <h2 className="text-2xl font-bold text-white text-center mb-1">{title}</h2>
-        <p className="text-xs text-slate-500 text-center mb-6">
+        <p className="text-xs text-slate-500 text-center mb-5">
           {t("собираем всё, что человечество знает об этой планете", "gathering everything humanity knows about this planet")}
         </p>
 
         {/* Этапы */}
-        <div className="space-y-2.5 mb-5">
+        <div className="space-y-2 mb-4">
           {stages.map((s, i) => {
             const done = i < stage;
             const active = i === stage;
@@ -139,7 +140,7 @@ const LoadingScreen = ({ title, stages, stage }) => {
         </div>
 
         {/* Прогресс */}
-        <div className="h-1.5 overflow-hidden mb-6" style={{ background: "rgba(148,163,253,.10)", borderRadius: 2 }}>
+        <div className="h-1.5 overflow-hidden mb-5" style={{ background: "rgba(148,163,253,.10)", borderRadius: 2 }}>
           <motion.div
             className="h-full" style={{ background: "var(--beam)", borderRadius: 2 }}
             animate={{ width: `${progress}%` }}
@@ -148,7 +149,7 @@ const LoadingScreen = ({ title, stages, stage }) => {
         </div>
 
         {/* Факт */}
-        <div className="glass rounded-2xl p-4 min-h-[92px]">
+        <div className="glass rounded-2xl px-4 py-3 min-h-[84px]">
           <div className="flex items-center gap-2 text-amber-300/90 text-xs font-semibold uppercase tracking-wider mb-1.5">
             <Lightbulb className="w-3.5 h-3.5" /> {t("Знаете ли вы?", "Did you know?")}
           </div>
@@ -166,7 +167,7 @@ const LoadingScreen = ({ title, stages, stage }) => {
           </AnimatePresence>
         </div>
 
-        <p className="text-[11px] text-slate-600 text-center mt-4">
+        <p className="text-[11px] text-slate-600 text-center mt-3">
           {t("Первый запрос — 10–20 секунд (5 внешних источников), повторные открываются мгновенно", "First request — 10–20 seconds (5 external sources); repeat requests open instantly")}
         </p>
       </motion.div>
