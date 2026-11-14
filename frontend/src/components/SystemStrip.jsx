@@ -57,6 +57,18 @@ const StarDisc = ({ id, cx, cy, r, color }) => (
   </g>
 );
 
+/** Наконечник стрелки «Земля у Солнца → место Земли». */
+const Arrow = ({ id }) => (
+  <marker id={`${id}-arrow`} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L8,4 L0,8 z" className="ss-arrow-head" />
+  </marker>
+);
+
+/** Во сколько раз дальше (или ближе) Земле пришлось бы встать у этой звезды. */
+const earthShift = (earthAu, t) => (earthAu >= 1
+  ? t(`в ${fmt(earthAu, 1)} раза дальше`, `${fmt(earthAu, 1)}× farther`)
+  : t(`в ${fmt(1 / earthAu, 0)} раз ближе`, `${fmt(1 / earthAu, 0)}× closer`));
+
 /** Планета на оси: кликается, подсвечивается вместе со строкой списка. */
 const PlanetMark = ({ p, x, y, r, active, onActive, onOpen, label, children }) => {
   const t = useT();
@@ -77,9 +89,9 @@ const PlanetMark = ({ p, x, y, r, active, onActive, onOpen, label, children }) =
 const Horizontal = ({ geo, star, hz, width, active, onActive, open, id }) => {
   const t = useT();
   const { earthAu, starAu, placed, domain, solar, ticks, color } = geo;
-  const top = 34;
-  const axisY = 180;
-  const cy = 112;
+  const top = 48;
+  const axisY = 194;
+  const cy = 126;
   const solarY = axisY + 54;
   const height = solar.length ? solarY + 26 : axisY + 34;
   const x = (au) => PAD + logX(domain, width - PAD * 2)(au);
@@ -98,6 +110,9 @@ const Horizontal = ({ geo, star, hz, width, active, onActive, open, id }) => {
   const starLabel = `${t("поверхность звезды", "star's surface")} · ${fmtSig(starAu, 2)} ${t("а.е.", "AU")}`;
   const starLabelInside = starX != null && starX - PAD > starLabel.length * CHAR_PX + 24;
 
+  // Стрелка от настоящей Земли (1 а.е. у Солнца) к месту Земли у этой звезды
+  const earthGhost = earthAu != null && solar.some((s) => s.en === "Earth") && Math.abs(x(earthAu) - x(1)) > 30;
+
   const taken = [];
   const solarMarks = solar.map((s) => ({ ...s, x: x(s.a), label: t(s.ru, s.en) }));
   solarMarks.forEach((s) => {
@@ -113,6 +128,7 @@ const Horizontal = ({ geo, star, hz, width, active, onActive, open, id }) => {
            "The system to scale: distances from the star in astronomical units, logarithmic scale")}>
       <defs>
         <clipPath id={`${id}-band`}><rect x={0} y={0} width={width} height={axisY} /></clipPath>
+        <Arrow id={id} />
       </defs>
 
       {hz && (
@@ -144,9 +160,10 @@ const Horizontal = ({ geo, star, hz, width, active, onActive, open, id }) => {
 
       {earthAu != null && (
         <g className="ss-earth">
-          <line x1={x(earthAu)} x2={x(earthAu)} y1={top - 6} y2={axisY} />
-          <text x={x(earthAu)} y={top - 14} textAnchor={anchorAt(x(earthAu))}>
-            {t("место Земли", "Earth's place")}
+          <line x1={x(earthAu)} x2={x(earthAu)} y1={top - 6} y2={earthGhost ? solarY - 6 : axisY} />
+          <text x={x(earthAu)} y={top - 24} textAnchor={anchorAt(x(earthAu))}>{t("место Земли", "Earth's place")}</text>
+          <text className="ss-earth-sub" x={x(earthAu)} y={top - 10} textAnchor={anchorAt(x(earthAu))}>
+            {t("столько же света, как у Земли", "as much light as Earth gets")}
           </text>
         </g>
       )}
@@ -182,9 +199,19 @@ const Horizontal = ({ geo, star, hz, width, active, onActive, open, id }) => {
         );
       })}
 
+      {earthGhost && (
+        <g className="ss-shift">
+          <path d={`M${x(1)},${solarY - 5} Q${(x(1) + x(earthAu)) / 2},${solarY - 24} ${x(earthAu) + (earthAu >= 1 ? -3 : 3)},${solarY - 7}`}
+                markerEnd={`url(#${id}-arrow)`} />
+          {Math.abs(x(earthAu) - x(1)) > earthShift(earthAu, t).length * CHAR_PX + 24 && (
+            <text x={(x(1) + x(earthAu)) / 2} y={solarY - 22} textAnchor="middle">{earthShift(earthAu, t)}</text>
+          )}
+        </g>
+      )}
+
       {solar.length > 0 && (
         <g className="ss-solar">
-          <text className="ss-solar-title" x={PAD} y={solarY - 12}>{t("Солнечная система", "Solar System")}</text>
+          <text className="ss-solar-title" x={PAD} y={solarY - 12}>{t("Солнечная система для сравнения", "Solar System for comparison")}</text>
           <line x1={PAD} x2={width - PAD} y1={solarY} y2={solarY} />
           {solarMarks.map((s) => (
             <g key={s.en}>
@@ -262,6 +289,7 @@ const Vertical = ({ geo, star, hz, width, active, onActive, open, id }) => {
            "The system to scale: distance from the star runs down a logarithmic scale")}>
       <defs>
         <clipPath id={`${id}-band`}><rect x={0} y={0} width={width} height={bottom} /></clipPath>
+        <Arrow id={id} />
       </defs>
 
       {hz && (
@@ -300,6 +328,13 @@ const Vertical = ({ geo, star, hz, width, active, onActive, open, id }) => {
         <g className="ss-earth">
           <line x1={axisX - 6} x2={width} y1={earthY} y2={earthY} />
           <text x={width - 8} y={earthLabel.y} textAnchor="end">{earthLabel.text}</text>
+        </g>
+      )}
+
+      {earthY != null && solar.some((s) => s.en === "Earth") && Math.abs(earthY - y(1)) > 30 && (
+        <g className="ss-shift">
+          <path d={`M${width - 3},${y(1) + (earthY > y(1) ? 6 : -6)} L${width - 3},${earthY + (earthY > y(1) ? -3 : 3)}`}
+                markerEnd={`url(#${id}-arrow)`} />
         </g>
       )}
 
