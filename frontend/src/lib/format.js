@@ -1,14 +1,8 @@
 // Форматирование чисел и перевод терминов для всего приложения.
-// Язык читаем из localStorage напрямую: функции вызываются в рендере,
+// Язык берём из i18n напрямую: функции вызываются в рендере,
 // а смена языка перерисовывает дерево (через LangProvider), поэтому подписи обновляются сами.
+import { currentLang as curLang } from "@/lib/i18n";
 
-const curLang = () => {
-  try {
-    return localStorage.getItem("exovision_lang") === "en" ? "en" : "ru";
-  } catch {
-    return "ru";
-  }
-};
 const L = (ru, en) => (curLang() === "en" ? en : ru);
 
 export const fmt = (v, digits = 2) => {

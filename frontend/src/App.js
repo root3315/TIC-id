@@ -8,7 +8,7 @@ import SystemPage from "@/pages/SystemPage";
 import Starfield from "@/components/Starfield";
 import NavBar from "@/components/NavBar";
 import { Toaster } from "@/components/ui/sonner";
-import { LangProvider } from "@/lib/i18n";
+import { LangProvider, LangParamKeeper } from "@/lib/i18n";
 
 function App() {
   return (
@@ -16,6 +16,7 @@ function App() {
       <div className="App">
         <Starfield />
         <BrowserRouter>
+          <LangParamKeeper />
           <NavBar />
           <div className="relative" style={{ zIndex: 1 }}>
             <Routes>

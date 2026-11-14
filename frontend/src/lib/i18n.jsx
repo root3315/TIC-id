@@ -1,23 +1,75 @@
 // Простая двуязычность (RU/EN) без словарей: строку переводишь по месту t("рус", "eng").
-// Язык хранится в localStorage и переживает перезагрузку.
-import { createContext, useContext, useState, useCallback } from "react";
+// Язык выбирается так: ?lang= в адресе (запоминается) → сохранённый выбор → язык браузера.
+import { createContext, useContext, useState, useCallback, useEffect } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
-const LangCtx = createContext({ lang: "ru", setLang: () => {} });
+const STORAGE_KEY = "exovision_lang";
+const SUPPORTED = ["ru", "en"];
+
+const saveLang = (l) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, l);
+  } catch {
+    /* приватный режим — не критично */
+  }
+};
+
+const readSavedLang = () => {
+  try {
+    return localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return null;
+  }
+};
+
+const urlLang = new URLSearchParams(window.location.search).get("lang");
+const enteredWithLang = SUPPORTED.includes(urlLang);
+
+const pickInitialLang = () => {
+  if (enteredWithLang) {
+    saveLang(urlLang);
+    return urlLang;
+  }
+  const saved = readSavedLang();
+  if (SUPPORTED.includes(saved)) return saved;
+  return (navigator.language || "").toLowerCase().startsWith("ru") ? "ru" : "en";
+};
+
+let activeLang = pickInitialLang();
+document.documentElement.lang = activeLang;
+
+/** Текущий язык вне React (для форматтеров). */
+export const currentLang = () => activeLang;
+
+const LangCtx = createContext({ lang: activeLang, setLang: () => {} });
 
 export const LangProvider = ({ children }) => {
-  const [lang, setLangState] = useState(
-    () => (typeof localStorage !== "undefined" && localStorage.getItem("exovision_lang")) || "ru"
-  );
+  const [lang, setLangState] = useState(activeLang);
   const setLang = useCallback((l) => {
+    activeLang = l;
+    document.documentElement.lang = l;
+    saveLang(l);
     setLangState(l);
-    try {
-      localStorage.setItem("exovision_lang", l);
-      document.documentElement.lang = l;
-    } catch {
-      /* приватный режим — не критично */
-    }
   }, []);
   return <LangCtx.Provider value={{ lang, setLang }}>{children}</LangCtx.Provider>;
+};
+
+/** Если сайт открыли с ?lang=, держим параметр в адресе при переходах внутри приложения. */
+export const LangParamKeeper = () => {
+  const { lang } = useContext(LangCtx);
+  const location = useLocation();
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!enteredWithLang) return;
+    const params = new URLSearchParams(location.search);
+    if (params.get("lang") === lang) return;
+    params.set("lang", lang);
+    navigate(
+      { pathname: location.pathname, search: `?${params}`, hash: location.hash },
+      { replace: true, state: location.state }
+    );
+  }, [lang, location, navigate]);
+  return null;
 };
 
 export const useLang = () => useContext(LangCtx);
