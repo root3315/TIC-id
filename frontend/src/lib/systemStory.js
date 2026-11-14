@@ -135,11 +135,12 @@ const manyPlanets = (planets, hz, t) => {
 export const systemLede = (star, planets, hz, t) => {
   const p = starParts(star);
   const body = planets.length === 1 ? onePlanet(planets[0], hz, t) : manyPlanets(planets, hz, t);
-  if (!p) return t(`Вокруг этой звезды ${body}`, body);
+  if (!p) return t(`Вокруг этой звезды ${body}`, body.replace("around it", "around this star"));
   const where = star.distance_pc > 0
     ? t(` в ${lightYears(star.distance_pc, (r) => r, LY_PREP)} от нас`, ` ${lightYears(star.distance_pc, (_r, e) => e)} away`)
     : "";
-  const first = `${capitalize(t(p.ru, p.en.toLowerCase()))}${where}.`;
+  const article = /^[aeiou]/i.test(p.en) ? "An" : "A";
+  const first = t(`${capitalize(p.ru)}${where}.`, `${article} ${p.en.toLowerCase()}${where}.`);
   const around = t(p.gender === "f" ? "Вокруг неё" : "Вокруг него", "");
   return `${first} ${t(`${around} ${body}`, body)}`;
 };

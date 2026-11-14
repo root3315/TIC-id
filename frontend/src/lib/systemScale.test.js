@@ -1,12 +1,27 @@
 import {
-  axisDomain, decadeTicks, labelLanes, logX, planetDotRadius, planetLetter, inHabitableZone,
+  axisDomain, earthEquivalentAu, decadeTicks, labelLanes, logX, planetDotRadius, planetLetter, inHabitableZone,
 } from "./systemScale";
 
-test("domain always contains 1 AU and every apoapsis", () => {
+test("domain covers every apoapsis without stretching to 1 AU", () => {
   const [lo, hi] = axisDomain({ planets: [{ a_au: 0.011 }, { a_au: 0.062, eccentricity: 0.5 }] });
   expect(lo).toBeLessThanOrEqual(0.011 * 0.7);
-  expect(hi).toBeGreaterThanOrEqual(2);
-  expect(lo).toBeLessThan(1);
+  expect(hi).toBeGreaterThanOrEqual(0.062 * 1.5);
+  expect(hi).toBeLessThanOrEqual(1);
+});
+
+test("domain includes extra marks such as the Earth-equivalent distance", () => {
+  const [, hi] = axisDomain({ planets: [{ a_au: 0.05 }], extra: [3.2] });
+  expect(hi).toBeGreaterThanOrEqual(3.2);
+});
+
+test("empty input falls back to a sane range", () => {
+  expect(axisDomain({ planets: [] })).toEqual([0.1, 10]);
+});
+
+test("Earth-equivalent distance is the square root of luminosity", () => {
+  expect(earthEquivalentAu(1)).toBeCloseTo(1);
+  expect(earthEquivalentAu(470)).toBeCloseTo(21.68, 1);
+  expect(earthEquivalentAu(null)).toBeNull();
 });
 
 test("domain stretches to a habitable zone far beyond the planets (Aldebaran)", () => {
@@ -49,6 +64,7 @@ test("habitable zone check", () => {
 });
 
 test("a tiny star does not stretch the axis (TRAPPIST-1)", () => {
-  const [lo] = axisDomain({ planets: [{ a_au: 0.0115 }, { a_au: 0.0619 }] });
+  const [lo, hi] = axisDomain({ planets: [{ a_au: 0.0115 }, { a_au: 0.0619 }] });
   expect(lo).toBe(0.001);
+  expect(hi).toBe(0.1);
 });

@@ -47,3 +47,11 @@ test("lede for a packed system mentions the range and the habitable zone", () =>
 test("lede never invents what the catalogue lacks", () => {
   expect(systemLede({ name: "X" }, [{}], null, ru)).toBe("Вокруг этой звезды известна одна планета.");
 });
+
+test("english lede has an article and names the star when it is not described", () => {
+  const star = { spectral_type: "K5 III", temperature: 4055, radius: 45.1, distance_pc: 20.4332 };
+  const planets = [{ radius_earth: 12.7, period_days: 628.96, a_au: 1.46 }];
+  expect(systemLede(star, planets, null, en)).toBe(
+    "An orange giant 67 light years away. One planet is known around it: a gas giant whose year lasts 629 days.");
+  expect(systemLede({}, [{}], null, en)).toBe("One planet is known around this star.");
+});

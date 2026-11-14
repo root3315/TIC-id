@@ -4,11 +4,10 @@ import { ArrowLeft } from "lucide-react";
 import { getSystem } from "@/lib/api";
 import { decToDms, fmt, fmtSig, methodRu, raToHms, scoreColor } from "@/lib/format";
 import { useT } from "@/lib/i18n";
-import { systemLede } from "@/lib/systemStory";
-import { inHabitableZone } from "@/lib/systemScale";
+import { describeStar, systemLede } from "@/lib/systemStory";
+import { inHabitableZone, planetDotRadius } from "@/lib/systemScale";
 import SystemRuler from "@/components/SystemRuler";
 import SystemOrbits from "@/components/SystemOrbits";
-import PlanetVisual from "@/components/PlanetVisual";
 
 // Куда возвращать с кнопки «назад на небо». Берётся только из сборки, не из ссылки,
 // чтобы страницу нельзя было превратить в переадресацию на чужой сайт.
@@ -38,23 +37,47 @@ const useMedia = (query) => {
 };
 
 /** Число с единицей: значение крупно, единица тише. */
-const Figure = ({ label, value, unit }) => (
-  <div className="sys-figure">
+const Figure = ({ label, value, unit, className = "" }) => (
+  <div className={`sys-figure ${className}`}>
     <dt>{label}</dt>
     <dd><span className="tabular">{value}</span>{unit && <small>{unit}</small>}</dd>
   </div>
 );
 
-// Размер CSS-планеты по радиусу; гигант с кольцами вписывается в колонку целиком (fit)
-const planetSize = (r) => (r >= 6 ? 60 : Math.round(26 + 26 * Math.min(1, Math.log10(1 + (r || 1.5)) / Math.log10(7))));
+// Кратность звезды словом: показываем рядом со спектром, а не в сноске
+const multiplicity = (n, t) => {
+  if (!(n > 1)) return null;
+  if (n === 2) return t("двойная звезда", "binary star");
+  if (n === 3) return t("тройная звезда", "triple star");
+  return t(`${n} звезды в системе`, `${n} stars in the system`);
+};
+
+/** Подписи колонок списка планет: одна строка на весь список, а не в каждой строке. */
+const PlanetHead = ({ t }) => (
+  <div className="sys-planets__head" aria-hidden="true">
+    <span />
+    <span>{t("планета", "planet")}</span>
+    <span className="sys-planets__cols">
+      <span>{t("орбита", "orbit")}</span>
+      <span>{t("год", "year")}</span>
+      <span>{t("радиус", "radius")}</span>
+      <span>{t("масса", "mass")}</span>
+      <span>{t("температура", "temperature")}</span>
+    </span>
+    <span className="sys-planets__score-head">{t("обитаемость", "habitability")}</span>
+  </div>
+);
 
 const PlanetRow = ({ p, hz, t }) => {
   const habitable = inHabitableZone(p.a_au, hz);
+  const disc = Math.round(planetDotRadius(p.radius_earth) * 2.4);
   return (
     <li>
-      <Link to={`/results?name=${encodeURIComponent(p.name)}`} className="sys-planet" data-testid="system-planet">
+      <Link to={`/results?name=${encodeURIComponent(p.name)}`} className="sys-planet"
+            aria-label={p.name} data-testid="system-planet">
+        {/* тот же язык, что на сцене и линейке: диск по радиусу, обводка — зона обитаемости */}
         <span className="sys-planet__visual" aria-hidden="true">
-          <PlanetVisual radius={p.radius_earth} teq={p.teq_k} mass={p.mass_earth} size={planetSize(p.radius_earth)} fit />
+          <span className={`sys-disc ${habitable ? "is-habitable" : ""}`} style={{ width: disc, height: disc }} />
         </span>
         <span className="sys-planet__id">
           <span className="sys-planet__name">{p.name}</span>
@@ -68,16 +91,14 @@ const PlanetRow = ({ p, hz, t }) => {
           <Figure label={t("орбита", "orbit")} value={`${p.a_estimated ? "≈" : ""}${fmtSig(p.a_au, 3)}`} unit={t("а.е.", "AU")} />
           <Figure label={t("год", "year")} value={fmt(p.period_days, p.period_days < 10 ? 2 : 0)} unit={t("сут", "d")} />
           <Figure label={t("радиус", "radius")} value={fmt(p.radius_earth, 2)} unit="R⊕" />
-          <Figure label={t("масса", "mass")} value={fmt(p.mass_earth, p.mass_earth < 10 ? 2 : 0)} unit="M⊕" />
-          <Figure label={t("температура", "temperature")} value={fmt(p.teq_k, 0)} unit="K" />
+          <Figure className="sys-figure--extra" label={t("масса", "mass")} value={fmt(p.mass_earth, p.mass_earth < 10 ? 2 : 0)} unit="M⊕" />
+          <Figure className="sys-figure--extra" label={t("температура", "temperature")} value={fmt(p.teq_k, 0)} unit="K" />
         </dl>
-        <span className="sys-planet__score" title={t("Оценка обитаемости ExoVision, из 100", "ExoVision habitability score, out of 100")}>
-          {p.habitability != null ? (
-            <>
-              <span className="dot" style={{ background: scoreColor(p.habitability) }} />
-              <span className="tabular">{fmt(p.habitability, 0)}</span>
-            </>
-          ) : "—"}
+        <span className="sys-planet__score">
+          <span className="sys-planet__score-label">{t("обитаемость", "habitability")}</span>
+          {p.habitability != null
+            ? <span className="tabular">{fmt(p.habitability, 0)}<small>/100</small></span>
+            : "—"}
         </span>
       </Link>
     </li>
@@ -86,10 +107,10 @@ const PlanetRow = ({ p, hz, t }) => {
 
 /** Пустая сцена на месте будущей системы: искатель телескопа и орбиты без планет. */
 const SearchScene = ({ wide, searching }) => {
-  const rings = wide ? [72, 138, 206] : [48, 92, 136];
+  const rings = wide ? [64, 124, 186] : [48, 92, 136];
   const ticks = [[0, -30, 0, -21], [0, 21, 0, 30], [-30, 0, -21, 0], [21, 0, 30, 0]];
   return (
-    <svg className={`sys-search ${searching ? "is-searching" : ""}`} width="100%" height={wide ? 500 : 320} aria-hidden="true">
+    <svg className={`sys-search ${searching ? "is-searching" : ""}`} width="100%" height={wide ? 420 : 320} aria-hidden="true">
       {/* вложенный svg ставит начало координат в центр будущей звезды */}
       <svg x={wide ? "70%" : "50%"} y="50%" overflow="visible">
         <g className="sys-search__rings">
@@ -125,7 +146,7 @@ const SystemStatus = ({ status, wide, back, t, name, ra, dec }) => (
       <div className="sys-stage">
         <div className="sys-stage__scene"><SearchScene wide={wide} searching={status === "loading"} /></div>
         <div className="sys-stage__text">
-          <h1 className="sys-name">{name || t("Звезда", "Star")}</h1>
+          <h1 className={`sys-name ${(name || "").length > 14 ? "sys-name--long" : ""}`}>{name || t("Звезда", "Star")}</h1>
           {ra != null && <p className="sys-designation">{`${raToHms(ra)}  ${decToDms(dec)}`}</p>}
           <p className="sys-lede" role={status === "loading" ? "status" : "alert"}>{t(...STATUS_TEXT[status])}</p>
           {status === "empty" && (
@@ -200,13 +221,14 @@ const SystemPage = () => {
           {placed.length > 0 && (
             <div className="sys-stage__scene">
               <SystemOrbits star={star} planets={planets} hz={hz}
-                            height={wide ? 500 : 320} centerX={wide ? 0.7 : 0.5} />
+                            height={wide ? 420 : 320} centerX={wide ? 0.7 : 0.5} />
             </div>
           )}
           <div className="sys-stage__text">
-            <h1 id="sys-name" className="sys-name" data-testid="system-star-name">{displayName}</h1>
+            <h1 id="sys-name" className={`sys-name ${displayName.length > 14 ? "sys-name--long" : ""}`}
+                data-testid="system-star-name">{displayName}</h1>
             <p className="sys-designation">
-              {[catalogName, star.spectral_type].filter(Boolean).join("  ·  ")}
+              {[catalogName, star.spectral_type, multiplicity(star.star_count, t)].filter(Boolean).join("  ·  ") || "\u00a0"}
             </p>
             <p className="sys-lede">{systemLede(star, planets, hz, t)}</p>
             <dl className="sys-figures">
@@ -214,7 +236,9 @@ const SystemPage = () => {
               {star.radius && <Figure label={t("радиус", "radius")} value={fmt(star.radius, star.radius < 10 ? 2 : 1)} unit="R☉" />}
               {star.mass && <Figure label={t("масса", "mass")} value={fmt(star.mass, 2)} unit="M☉" />}
               {luminosity && <Figure label={t("светимость", "luminosity")} value={luminosity >= 10 ? fmt(luminosity, 0) : fmtSig(luminosity, 2)} unit="L☉" />}
-              {star.distance_pc && <Figure label={t("расстояние", "distance")} value={fmt(star.distance_pc * LY_PER_PC, 0)} unit={t("св. лет", "ly")} />}
+              {/* расстояние уже сказано во фразе; цифрой — только если фразы о звезде нет */}
+              {star.distance_pc && !describeStar(star, t) &&
+                <Figure label={t("расстояние", "distance")} value={fmt(star.distance_pc * LY_PER_PC, 0)} unit={t("св. лет", "ly")} />}
             </dl>
           </div>
         </div>
@@ -227,26 +251,28 @@ const SystemPage = () => {
         )}
       </section>
 
-      <section className="max-w-6xl mx-auto px-4 sys-section" aria-labelledby="ruler-h">
-        <h2 id="ruler-h" className="sys-h2">{t("Где была бы Земля", "Where Earth would be")}</h2>
-        <SystemRuler star={star} planets={planets} hz={hz} />
-      </section>
-
-      <section className="max-w-6xl mx-auto px-4 sys-section" aria-labelledby="planets-h">
+      <section className="max-w-6xl mx-auto px-4 sys-section sys-section--first" aria-labelledby="planets-h">
         <h2 id="planets-h" className="sys-h2">
           {t("Планеты", "Planets")} <span className="sys-h2__count tabular">{planets.length}</span>
         </h2>
+        <PlanetHead t={t} />
         <ol className="sys-planets">
           {planets.map((p) => <PlanetRow key={p.name} p={p} hz={hz} t={t} />)}
         </ol>
       </section>
+
+      {placed.length > 0 && (
+        <section className="max-w-6xl mx-auto px-4 sys-section" aria-labelledby="ruler-h">
+          <h2 id="ruler-h" className="sys-h2">{t("Где была бы Земля", "Where Earth would be")}</h2>
+          <SystemRuler star={star} planets={planets} hz={hz} />
+        </section>
+      )}
 
       <footer className="max-w-6xl mx-auto px-4 sys-footnote">
         <span className="tabular">{raToHms(star.ra)}  {decToDms(star.dec)}</span>
         {fromMuninn && matchArcsec != null && (
           <span>{t("звезда каталога в", "catalogue star")} {fmt(matchArcsec, 1)}″ {t("от точки на небе Muninn", "from the Muninn sky point")}</span>
         )}
-        {star.star_count > 1 && <span>{t("звёзд в системе", "stars in the system")}: {star.star_count}</span>}
         <span>{t("данные: NASA Exoplanet Archive", "data: NASA Exoplanet Archive")}</span>
       </footer>
     </div>

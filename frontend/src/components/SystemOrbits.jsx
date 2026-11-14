@@ -23,6 +23,11 @@ const SystemOrbits = ({ star, planets, hz, height = 360, centerX = 0.5 }) => {
     const indigo = css.getPropertyValue("--data-indigo").trim() || "#818cf8";
     const rule = css.getPropertyValue("--rule").trim() || "rgba(148,163,253,0.11)";
     const ink3 = css.getPropertyValue("--ink-3").trim() || "#79849f";
+    const habitable = css.getPropertyValue("--data-habitable").trim() || "#4ade80";
+    const withAlpha = (hex, a) => {
+      const n = parseInt(hex.replace("#", ""), 16);
+      return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+    };
 
     const orbits = placed.map((p, i) => {
       const e = Number.isFinite(p.eccentricity) ? Math.min(Math.max(p.eccentricity, 0), 0.9) : 0;
@@ -63,7 +68,7 @@ const SystemOrbits = ({ star, planets, hz, height = 360, centerX = 0.5 }) => {
           ctx.beginPath();
           ctx.arc(cx, cy, b * scale, 0, Math.PI * 2);
           ctx.arc(cx, cy, a * scale, 0, Math.PI * 2, true);
-          ctx.fillStyle = `rgba(34,197,94,${alpha})`;
+          ctx.fillStyle = withAlpha(habitable, alpha);
           ctx.fill();
         };
         ring(hz.inner_optimistic, hz.outer_optimistic, 0.08);
@@ -106,7 +111,7 @@ const SystemOrbits = ({ star, planets, hz, height = 360, centerX = 0.5 }) => {
         ctx.fill();
         if (inHabitableZone(o.a_au, hz)) {
           ctx.lineWidth = 1.5;
-          ctx.strokeStyle = "rgba(34,197,94,0.9)";
+          ctx.strokeStyle = habitable;
           ctx.stroke();
         }
         ctx.fillStyle = ink3;
