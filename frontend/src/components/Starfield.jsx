@@ -4,10 +4,9 @@ import { useEffect, useRef } from "react";
  * Космический фон в два слоя:
  *  — статичный canvas: полоса Млечного Пути и слабые туманности
  *  — анимированный canvas: мерцающие звёзды с медленным дрейфом
- * calm — для страниц с данными о настоящем небе: только редкие тусклые звёзды,
- * без выдуманных туманностей и движения. Уважает prefers-reduced-motion.
+ * Уважает prefers-reduced-motion.
  */
-const Starfield = ({ calm = false }) => {
+const Starfield = () => {
   const staticRef = useRef(null);
   const animRef = useRef(null);
 
@@ -16,7 +15,7 @@ const Starfield = ({ calm = false }) => {
     const aCanvas = animRef.current;
     const sctx = sCanvas.getContext("2d");
     const actx = aCanvas.getContext("2d");
-    const reduced = calm || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     let raf = 0;
     let stars = [];
     let w = 0;
@@ -24,7 +23,6 @@ const Starfield = ({ calm = false }) => {
 
     const paintStatic = () => {
       sctx.clearRect(0, 0, w, h);
-      if (calm) return;
 
       // туманности
       const nebulae = [
@@ -93,12 +91,12 @@ const Starfield = ({ calm = false }) => {
         canvas.style.height = `${h}px`;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       }
-      const count = Math.min(calm ? 140 : 300, Math.floor((w * h) / (calm ? 9000 : 5200)));
+      const count = Math.min(300, Math.floor((w * h) / 5200));
       stars = Array.from({ length: count }, () => ({
         x: Math.random() * w,
         y: Math.random() * h,
         r: Math.random() * 1.35 + 0.35,
-        base: (Math.random() * 0.55 + 0.3) * (calm ? 0.55 : 1),
+        base: Math.random() * 0.55 + 0.3,
         phase: Math.random() * Math.PI * 2,
         speed: Math.random() * 1.2 + 0.4,
         drift: Math.random() * 0.016 + 0.004,
@@ -135,7 +133,7 @@ const Starfield = ({ calm = false }) => {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", init);
     };
-  }, [calm]);
+  }, []);
 
   return (
     <>
