@@ -224,7 +224,12 @@ const ResultsPage = () => {
               <div className="min-w-0">
                 <h1 className="text-xl sm:text-2xl font-bold text-white truncate">{data.name}</h1>
                 <p className="mono text-[11px] truncate mt-0.5" style={{ color: "var(--ink-3)" }}>
-                  {data.host_star?.name && `${t("Система", "System")} ${data.host_star.name}`}
+                  {data.host_star?.name && (
+                    <Link to={`/system?host=${encodeURIComponent(data.host_star.name)}`}
+                          className="link-beam" data-testid="system-link">
+                      {t("Система", "System")} {data.host_star.name}
+                    </Link>
+                  )}
                   {data.tic_id ? ` · ${data.tic_id}` : ""}
                 </p>
               </div>

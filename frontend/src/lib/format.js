@@ -23,6 +23,14 @@ export const fmt = (v, digits = 2) => {
   });
 };
 
+// Значащие цифры вместо экспоненты: 0,00055 читается, «5.5×10^-4» — нет.
+export const fmtSig = (v, sig = 2) => {
+  if (v === null || v === undefined || !Number.isFinite(Number(v))) return "—";
+  const n = Number(v);
+  if (n === 0 || Math.abs(n) >= 1) return fmt(n, 2);
+  return n.toLocaleString(curLang() === "en" ? "en-US" : "ru-RU", { maximumSignificantDigits: sig });
+};
+
 export const fmtErr = (v, err, digits = 2) => {
   if (v === null || v === undefined) return "—";
   const base = fmt(v, digits);

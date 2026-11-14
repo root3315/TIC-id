@@ -9,6 +9,7 @@ SIMBAD TAP, NASA alias lookup, Wikipedia, CDS hips2fits (реальные сни
 from fastapi import FastAPI, APIRouter, HTTPException, Query
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse
 import os
 import re
 import logging
@@ -31,6 +32,8 @@ from urllib.parse import quote
 from PIL import Image, ImageDraw, ImageFilter
 import numpy as np
 
+import systems
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
@@ -52,6 +55,7 @@ except Exception as e:  # noqa: BLE001
 # ---------- Кэши ----------
 CATALOG: List[Dict[str, Any]] = []          # облегчённые записи всех планет
 CATALOG_LOADED_AT: float = 0.0
+HOSTS: List[Dict[str, Any]] = []            # звёзды с планетами (для /system)
 CATALOG_TTL = 24 * 3600
 CATALOG_LOCK = asyncio.Lock()
 
@@ -238,7 +242,7 @@ async def ensure_catalog(force: bool = False) -> bool:
     """Загружает облегчённый каталог всех подтверждённых планет (кэш 24 ч).
     Тёплый старт: свежий каталог читается с диска мгновенно — NASA TAP бывает
     медленным, и рестарт сервера не должен его ждать."""
-    global CATALOG, CATALOG_LOADED_AT
+    global CATALOG, CATALOG_LOADED_AT, HOSTS
     if CATALOG and not force and (time.time() - CATALOG_LOADED_AT) < CATALOG_TTL:
         return True
     async with CATALOG_LOCK:
@@ -298,6 +302,7 @@ async def ensure_catalog(force: bool = False) -> bool:
         logger.info(f"Индекс обитаемости каталога: {time.time() - t_score:.1f} с")
         rows.sort(key=lambda r: (r.get('pl_name') or '').lower())
         CATALOG = rows
+        HOSTS = systems.build_host_index(rows)
         CATALOG_LOADED_AT = time.time()
         logger.info(f"Каталог загружен: {len(CATALOG)} планет")
         return True
@@ -1606,6 +1611,10 @@ def remember_search(name: str, data: Dict[str, Any]):
 # ========== AI-АНАЛИЗ (Groq — облако; Ollama — локальный фолбэк) ==========
 
 GROQ_API_KEY = (os.environ.get("GROQ_API_KEY") or "").strip()
+# На слабом железе (ТВ-бокс) локальную модель не трогаем вовсе: OLLAMA_ENABLED=0
+OLLAMA_ENABLED = os.environ.get("OLLAMA_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off")
+OLLAMA_OFF = {"analysis": None, "ollama_available": False,
+              "error": "Локальная модель на этом сервере отключена, а Groq сейчас не ответил"}
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 # Каскад: сначала умные модели, при лимитах/сбоях — быстрые запасные
 GROQ_MODELS = [m.strip() for m in (os.environ.get(
@@ -1693,6 +1702,8 @@ ANALYSIS_TASK = """Дай структурированный анализ по �
 
 async def analyze_with_ollama(data: dict, ollama_url: str, model: Optional[str],
                               question: Optional[str]) -> dict:
+    if not OLLAMA_ENABLED:
+        return OLLAMA_OFF
     try:
         async with httpx.AsyncClient(timeout=6.0) as client:
             tags = await client.get(f"{ollama_url}/api/tags")
@@ -1917,6 +1928,44 @@ async def catalog(
     }
 
 
+@api_router.get("/system")
+async def planet_system(
+    ra: Optional[float] = Query(None, ge=0, lt=360),
+    dec: Optional[float] = Query(None, ge=-90, le=90),
+    host: Optional[str] = Query(None, max_length=80),
+    radius: float = Query(90.0, gt=0, le=600, description="радиус поиска, угл. секунды"),
+):
+    """Звезда и все её планеты: по имени хоста или по позиции на небе (ссылка из Muninn)."""
+    if not await ensure_catalog():
+        raise HTTPException(status_code=503, detail="Каталог NASA временно недоступен")
+    match = None
+    if host:
+        found = systems.find_host_by_name(HOSTS, host)
+        if found:
+            match = (found, None)
+    if match is None and ra is not None and dec is not None:
+        match = systems.nearest_host(HOSTS, ra, dec, radius)
+    if match is None:
+        if ra is None and not host:
+            raise HTTPException(status_code=422, detail="Нужны ra и dec или host")
+        raise HTTPException(status_code=404, detail="Рядом с этой точкой нет звёзд с известными планетами")
+    found, sep = match
+    payload = systems.system_payload(found, hz=None,
+                                     match_arcsec=round(sep, 1) if sep is not None else None)
+    star = payload["star"]
+    payload["habitable_zone"] = kopparapu_hz(star.get("temperature"), star_luminosity(star))
+    return payload
+
+
+@api_router.get("/hosts")
+async def planet_hosts():
+    """Компактный список звёзд с планетами: Muninn решает по нему, показывать ли кнопку."""
+    if not await ensure_catalog():
+        raise HTTPException(status_code=503, detail="Каталог NASA временно недоступен")
+    return JSONResponse(systems.hosts_compact(HOSTS),
+                        headers={"Cache-Control": "public, max-age=86400"})
+
+
 @api_router.get("/stats")
 async def stats():
     """Статистика архива для главной страницы."""
@@ -2063,6 +2112,8 @@ async def catalog_scatter(x: str = Query("pl_rade"), y: str = Query("pl_bmasse")
 
 @api_router.get("/ollama/models")
 async def ollama_models(url: str = Query("http://localhost:11434")):
+    if not OLLAMA_ENABLED:
+        return {"available": False, "models": []}
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.get(f"{url}/api/tags")
@@ -2124,6 +2175,8 @@ async def ai_chat(req: AIChatRequest):
         if res.get("text"):
             return {"reply": res["text"], "model": res["model_nice"], "provider": "groq"}
         logger.warning(f"Groq чат не ответил: {res.get('error')}")
+    if not OLLAMA_ENABLED:
+        return {"reply": None, "error": OLLAMA_OFF["error"]}
     # фолбэк — локальная Ollama одним промптом
     dialog = "\n".join(f"{'Пользователь' if m['role'] == 'user' else 'Ассистент'}: {m['content']}"
                        for m in history)
@@ -2152,6 +2205,8 @@ async def ai_status():
         return {"provider": "groq", "available": True,
                 "primary": GROQ_NICE.get(GROQ_MODELS[0], GROQ_MODELS[0]),
                 "cascade": [GROQ_NICE.get(m, m) for m in GROQ_MODELS]}
+    if not OLLAMA_ENABLED:
+        return {"provider": "none", "available": False}
     try:
         async with httpx.AsyncClient(timeout=2.5) as client:
             r = await client.get("http://localhost:11434/api/tags")

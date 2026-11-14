@@ -464,3 +464,77 @@ button, a, input, select {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---------- Текстовая ссылка ----------
+   Циан = «на это можно нажать», подчёркивание появляется на наведении. */
+.link-beam {
+  color: var(--beam);
+  text-underline-offset: 3px;
+}
+
+.link-beam:hover {
+  color: var(--beam-hi);
+  text-decoration: underline;
+}
+
+/* ---------- Линейка системы (страница /system) ---------- */
+.sr-label {
+  font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+
+.sr-name {
+  font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 500;
+  fill: var(--ink-2);
+}
+
+.sr-planet {
+  cursor: pointer;
+  outline: none;
+}
+
+.sr-planet:hover .sr-dot,
+.sr-planet:focus-visible .sr-dot {
+  fill: var(--beam);
+}
+
+.sr-planet:hover .sr-name,
+.sr-planet:focus-visible .sr-name {
+  fill: var(--beam-hi);
+}
+
+.sr-planet:focus-visible .sr-dot {
+  stroke: var(--beam-hi);
+  stroke-width: 2px;
+}
+
+/* Таблица планет системы: строки разделены волосяной линией, без зебры. */
+.sys-table th {
+  font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  text-align: right;
+  padding: 0 0 10px 18px;
+  white-space: nowrap;
+}
+
+.sys-table td {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  text-align: right;
+  padding: 11px 0 11px 18px;
+  border-top: 1px solid var(--rule);
+  white-space: nowrap;
+}
+
+.sys-table th:first-child,
+.sys-table td:first-child {
+  text-align: left;
+  padding-left: 0;
+}
