@@ -1,4 +1,15 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600&display=swap');
+/* ================================================================
+   ExoVision — визуальная система «обсерваторной сводки».
+
+   Плоские панели, волосяные линии, один рабочий акцент — циан.
+   Индиго и фиолетовый из палитры никуда не делись, но у них теперь
+   одна роль: цвет ДАННЫХ (аккреционный диск, серии графиков,
+   статусы). В интерфейсной хроме их нет — иначе акцент перестаёт
+   что-либо значить.
+
+   Правило акцента: циан = «на это можно нажать». Всё остальное
+   строится светлотой одного тона и линиями в 1px.
+   ================================================================ */
 
 * {
   margin: 0;
@@ -6,12 +17,57 @@
   box-sizing: border-box;
 }
 
+:root {
+  /* --- Поверхности: один тон, ступени светлоты --- */
+  --void: #05081a;
+  --panel: rgba(11, 17, 40, 0.94);
+  --panel-2: rgba(18, 25, 56, 0.96);
+  --panel-3: rgba(26, 34, 71, 0.98);
+
+  /* --- Линии --- */
+  --rule: rgba(148, 163, 253, 0.11);
+  --rule-soft: rgba(148, 163, 253, 0.06);
+  --rule-lit: rgba(34, 211, 238, 0.4);
+
+  /* --- Текст: четыре ступени, каждая читается на --panel --- */
+  --ink: #e8ecff;
+  --ink-2: #a7b1d4;
+  --ink-3: #79849f;
+  --ink-4: #5a6482;
+
+  /* --- Акцент: только интерактив --- */
+  --beam: #22d3ee;
+  --beam-hi: #67e8f9;
+  --beam-wash: rgba(34, 211, 238, 0.12);
+
+  /* --- Цвета данных: графики, диски, статусы. Не для хрома --- */
+  --data-indigo: #818cf8;
+  --data-violet: #c084fc;
+
+  /* --- Совместимость со старыми именами --- */
+  --space-950: #05081a;
+  --space-900: #070b1d;
+  --space-800: #0b1026;
+  --space-700: #131a3a;
+  --accent: #22d3ee;
+  --accent-2: #818cf8;
+  --accent-3: #c084fc;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Фон — почти ровный. Атмосферу (Млечный Путь, туманности) рисует
+   canvas Starfield; дублировать её градиентными пятнами не нужно. */
 body {
-  font-family: 'Inter', sans-serif;
-  background: linear-gradient(135deg, #0f1419 0%, #1a1f35 50%, #0a0e27 100%);
-  color: #e0e7ff;
+  font-family: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  background: linear-gradient(180deg, #070b1d 0%, #05081a 62%, #04070f 100%);
+  background-attachment: fixed;
+  color: var(--ink);
   min-height: 100vh;
   overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
 .App {
@@ -19,84 +75,392 @@ body {
   position: relative;
 }
 
+/* Заголовки — тот же Plex, но плотнее по трекингу: на крупных
+   кеглях разрядка по умолчанию выглядит рыхло. */
 h1, h2, h3, h4, h5, h6 {
-  font-family: 'Space Grotesk', sans-serif;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.021em;
 }
 
-/* Cosmic background animation */
-@keyframes float {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-20px); }
+h1 {
+  letter-spacing: -0.032em;
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 1; }
+code, .mono {
+  font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
 }
 
-@keyframes shimmer {
-  0% { background-position: -1000px 0; }
-  100% { background-position: 1000px 0; }
+.tabular {
+  font-variant-numeric: tabular-nums;
 }
 
-/* Smooth transitions for interactive elements */
+::selection {
+  background: rgba(34, 211, 238, 0.3);
+  color: #fff;
+}
+
+/* ---------- Служебный голос: моноширинные подписи ----------
+   Обозначения, единицы, шапки таблиц, надзаголовки. Это язык
+   приборов и каталогов — он же отделяет данные от прозы. */
+.label-mono {
+  font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* ---------- Панели ----------
+   Никакого blur: панель — это плоскость, а не запотевшее стекло.
+   Иерархия — ступенью светлоты, граница — волосяной линией. */
+.glass,
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+}
+
+.glass-strong,
+.panel-2 {
+  background: var(--panel-2);
+  border: 1px solid var(--rule);
+}
+
+/* Панель первого плана: поиск, ключевые блоки. */
+.card-glow {
+  position: relative;
+  background: var(--panel-2);
+  border: 1px solid var(--rule);
+}
+
+/* Наведение: панель делает шаг вверх по светлоте и линия загорается.
+   Ни подпрыгивания, ни неонового ореола. */
+.hover-lift {
+  transition: background-color 0.16s ease-out, border-color 0.16s ease-out;
+}
+
+.hover-lift:hover {
+  background: var(--panel-2);
+  border-color: var(--rule-lit);
+}
+
+.hover-lift:active {
+  background: var(--panel-3);
+}
+
+/* ---------- Кнопки и поля ---------- */
 button, a, input, select {
-  transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+  transition: background-color 0.16s ease-out, border-color 0.16s ease-out,
+    color 0.16s ease-out, opacity 0.16s ease-out;
 }
 
-button:hover, a:hover {
-  transform: translateY(-2px);
+:focus-visible {
+  outline: 2px solid var(--beam);
+  outline-offset: 2px;
 }
 
-button:active {
-  transform: translateY(0px);
+/* Главное действие: плотная циановая плашка с тёмным текстом.
+   Заливка в один тон читается увереннее градиента. */
+.btn-beam {
+  background: var(--beam);
+  color: #041018;
+  font-weight: 600;
+  border: 1px solid var(--beam);
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 10px;
+.btn-beam:hover:not(:disabled) {
+  background: var(--beam-hi);
+  border-color: var(--beam-hi);
 }
 
-::-webkit-scrollbar-track {
-  background: #0a0e27;
+.btn-beam:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
-::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #00ffff, #0099ff);
-  border-radius: 5px;
+.btn-beam:disabled {
+  opacity: 0.55;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #00ffff, #00ccff);
+/* Поле ввода: тёмное «дно» панели, рамка загорается на фокусе. */
+.field {
+  background: var(--void);
+  border: 1px solid var(--rule);
+  color: var(--ink);
 }
 
-/* Glass morphism effect */
-.glass {
-  background: rgba(26, 30, 58, 0.4);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(0, 255, 255, 0.1);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+.field::placeholder {
+  color: var(--ink-4);
 }
 
-/* Glow effects */
+.field:focus,
+.field:focus-visible {
+  border-color: var(--beam);
+  outline: none;
+}
+
+/* Второстепенное действие — контур по волосяной линии. */
+.btn-quiet {
+  background: transparent;
+  color: var(--ink-2);
+  border: 1px solid var(--rule);
+}
+
+.btn-quiet:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--rule-lit);
+  background: var(--beam-wash);
+}
+
+.btn-quiet:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* ---------- Вкладки ----------
+   Тот же приём, что и в верхней навигации: активный раздел отмечен
+   отрезком линии, а не залитой «таблеткой». */
+.tabs-rule {
+  background: transparent;
+  border-bottom: 1px solid var(--rule);
+}
+
+.tab-trigger {
+  color: var(--ink-3);
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.tab-trigger:hover {
+  color: var(--ink);
+}
+
+.tab-trigger[data-state="active"] {
+  color: var(--ink);
+  background: transparent;
+  box-shadow: none;
+  border-bottom-color: var(--beam);
+}
+
+/* ---------- Метки данных ----------
+   Пришли на смену круглым «таблеткам»: у прямоугольного тега
+   с моношрифтом внутри читается значение, а не форма. */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  letter-spacing: 0.01em;
+  border: 1px solid var(--rule);
+  background: rgba(148, 163, 253, 0.05);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+/* Словесная метка (класс планеты, температурная зона) — та же форма,
+   но наборный шрифт: моноширинный оставлен машинным значениям. */
+.tag-word {
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 11.5px;
+  letter-spacing: 0;
+}
+
+/* Кликабельный тег — единственный, кто имеет право на циан. */
+.tag-link {
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.tag-link:hover {
+  color: var(--beam-hi);
+  border-color: var(--rule-lit);
+  background: var(--beam-wash);
+}
+
+.tag-link:active {
+  transform: translateY(1px);
+}
+
+/* Точка статуса: цвет несёт значение, поэтому он приходит инлайном. */
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+}
+
+/* ---------- Разделители ---------- */
+.divider-glow {
+  height: 1px;
+  border: none;
+  background: var(--rule);
+}
+
+/* Свечение осталось только там, где это физика (звёзды, диск),
+   а не украшение интерфейса. */
 .glow {
-  box-shadow: 0 0 20px rgba(0, 255, 255, 0.3),
-              0 0 40px rgba(0, 255, 255, 0.2),
-              0 0 60px rgba(0, 255, 255, 0.1);
+  box-shadow: 0 0 0 1px var(--rule-lit);
 }
 
 .glow-strong {
-  box-shadow: 0 0 30px rgba(0, 255, 255, 0.5),
-              0 0 60px rgba(0, 255, 255, 0.3),
-              0 0 90px rgba(0, 255, 255, 0.2);
+  box-shadow: 0 0 0 1px var(--rule-lit), 0 0 30px rgba(34, 211, 238, 0.1);
 }
 
-/* Loading animation */
-@keyframes rotate {
+/* Раньше это был трёхцветный градиент по тексту. Теперь — один
+   акцент: выделено ровно то, что действительно выделено. */
+.text-gradient {
+  color: var(--beam);
+}
+
+/* ---------- Скроллбар ---------- */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #05081a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 253, 0.18);
+  border-radius: 0;
+  border: 3px solid #05081a;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 253, 0.34);
+}
+
+/* ---------- Анимации ---------- */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-14px); }
+}
+
+.float {
+  animation: float 6s ease-in-out infinite;
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+.pulse-soft {
+  animation: pulse-soft 2.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: -600px 0; }
+  100% { background-position: 600px 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, rgba(148, 163, 184, 0.06) 25%, rgba(148, 163, 184, 0.14) 50%, rgba(148, 163, 184, 0.06) 75%);
+  background-size: 600px 100%;
+  animation: shimmer 1.6s infinite linear;
+  border-radius: 6px;
+}
+
+@keyframes spin-slow {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
 
-.loading {
-  animation: rotate 2s linear infinite;
+.spin-slow {
+  animation: spin-slow 14s linear infinite;
+}
+
+/* ---------- Планета (CSS-рендер) ---------- */
+.planet-sphere {
+  border-radius: 50%;
+  position: relative;
+  overflow: hidden;
+  box-shadow:
+    inset -28px -22px 60px rgba(0, 0, 6, 0.85),
+    inset 10px 8px 30px rgba(255, 255, 255, 0.18);
+}
+
+.planet-sphere::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.28), transparent 42%);
+  pointer-events: none;
+}
+
+.planet-bands {
+  position: absolute;
+  inset: -30%;
+  animation: bands-drift 38s linear infinite;
+}
+
+@keyframes bands-drift {
+  from { transform: translateX(-4%) rotate(-6deg); }
+  to { transform: translateX(4%) rotate(-6deg); }
+}
+
+/* ---------- Экран загрузки: мини-система ---------- */
+.ls-system {
+  position: relative;
+  width: 150px;
+  height: 150px;
+}
+
+.ls-star {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fff8e0, #ffcf6f 55%, #f59e0b);
+  box-shadow: 0 0 18px rgba(251, 191, 36, 0.8), 0 0 44px rgba(251, 191, 36, 0.35);
+  animation: pulse-soft 2.4s ease-in-out infinite;
+}
+
+.ls-orbit {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border: 1px dashed rgba(148, 163, 184, 0.22);
+  border-radius: 50%;
+}
+
+.ls-orbit-0 { width: 56px; height: 56px; margin: -28px 0 0 -28px; animation: ls-spin 2.6s linear infinite; }
+.ls-orbit-1 { width: 96px; height: 96px; margin: -48px 0 0 -48px; animation: ls-spin 5.2s linear infinite; }
+.ls-orbit-2 { width: 140px; height: 140px; margin: -70px 0 0 -70px; animation: ls-spin 9s linear infinite; }
+
+.ls-dot {
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  width: 9px;
+  height: 9px;
+  margin-left: -4.5px;
+  border-radius: 50%;
+}
+
+.ls-dot-0 { background: #fb923c; box-shadow: 0 0 8px rgba(251, 146, 60, 0.9); }
+.ls-dot-1 { background: #34d399; box-shadow: 0 0 8px rgba(52, 211, 153, 0.9); width: 11px; height: 11px; }
+.ls-dot-2 { background: #60a5fa; box-shadow: 0 0 8px rgba(96, 165, 250, 0.9); }
+
+@keyframes ls-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

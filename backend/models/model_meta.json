@@ -1,0 +1,451 @@
+{
+  "trained_at": "2026-07-07 21:16",
+  "dataset": "NASA Exoplanet Archive — Kepler Objects of Interest (cumulative)",
+  "algorithm": "HistGradientBoostingClassifier (scikit-learn)",
+  "features": [
+    {
+      "col": "koi_period",
+      "label": "Орбитальный период",
+      "unit": "сут"
+    },
+    {
+      "col": "koi_duration",
+      "label": "Длительность транзита",
+      "unit": "ч"
+    },
+    {
+      "col": "koi_depth",
+      "label": "Глубина транзита",
+      "unit": "ppm"
+    },
+    {
+      "col": "koi_prad",
+      "label": "Радиус кандидата",
+      "unit": "R⊕"
+    },
+    {
+      "col": "koi_teq",
+      "label": "Равновесная температура",
+      "unit": "K"
+    },
+    {
+      "col": "koi_insol",
+      "label": "Инсоляция",
+      "unit": "S⊕"
+    },
+    {
+      "col": "koi_model_snr",
+      "label": "Сигнал/шум транзита",
+      "unit": ""
+    },
+    {
+      "col": "koi_impact",
+      "label": "Прицельный параметр",
+      "unit": ""
+    },
+    {
+      "col": "koi_steff",
+      "label": "Температура звезды",
+      "unit": "K"
+    },
+    {
+      "col": "koi_slogg",
+      "label": "log g звезды",
+      "unit": "dex"
+    },
+    {
+      "col": "koi_srad",
+      "label": "Радиус звезды",
+      "unit": "R☉"
+    },
+    {
+      "col": "koi_kepmag",
+      "label": "Звёздная величина",
+      "unit": "mag"
+    },
+    {
+      "col": "koi_ror",
+      "label": "Отношение радиусов Rp/R★",
+      "unit": ""
+    },
+    {
+      "col": "koi_srho",
+      "label": "Плотность звезды из транзита",
+      "unit": "г/см³"
+    },
+    {
+      "col": "koi_dor",
+      "label": "Полуось в радиусах звезды a/R★",
+      "unit": ""
+    },
+    {
+      "col": "koi_incl",
+      "label": "Наклонение",
+      "unit": "°"
+    },
+    {
+      "col": "koi_num_transits",
+      "label": "Число наблюдённых транзитов",
+      "unit": ""
+    },
+    {
+      "col": "koi_max_mult_ev",
+      "label": "Макс. множественная статистика MES",
+      "unit": ""
+    },
+    {
+      "col": "koi_max_sngle_ev",
+      "label": "Макс. одиночная статистика SES",
+      "unit": ""
+    },
+    {
+      "col": "koi_fwm_stat_sig",
+      "label": "Значимость смещения центроида",
+      "unit": "%"
+    },
+    {
+      "col": "koi_dicco_msky",
+      "label": "Сдвиг центроида (разностное изобр.)",
+      "unit": "″"
+    },
+    {
+      "col": "koi_dikco_msky",
+      "label": "Сдвиг центроида (KIC)",
+      "unit": "″"
+    },
+    {
+      "col": "koi_smet",
+      "label": "Металличность звезды",
+      "unit": "dex"
+    }
+  ],
+  "metrics": {
+    "roc_auc": 0.9943,
+    "accuracy": 0.9783,
+    "precision": 0.9691,
+    "recall": 0.9709,
+    "f1": 0.97,
+    "n_train": 6068,
+    "n_test": 1518,
+    "n_confirmed": 2747,
+    "n_false_positive": 4839
+  },
+  "importances": [
+    {
+      "feature": "koi_prad",
+      "label": "Радиус кандидата",
+      "unit": "R⊕",
+      "importance": 0.01568
+    },
+    {
+      "feature": "koi_dikco_msky",
+      "label": "Сдвиг центроида (KIC)",
+      "unit": "″",
+      "importance": 0.01568
+    },
+    {
+      "feature": "koi_max_mult_ev",
+      "label": "Макс. множественная статистика MES",
+      "unit": "",
+      "importance": 0.01199
+    },
+    {
+      "feature": "koi_ror",
+      "label": "Отношение радиусов Rp/R★",
+      "unit": "",
+      "importance": 0.00427
+    },
+    {
+      "feature": "koi_dor",
+      "label": "Полуось в радиусах звезды a/R★",
+      "unit": "",
+      "importance": 0.00218
+    },
+    {
+      "feature": "koi_dicco_msky",
+      "label": "Сдвиг центроида (разностное изобр.)",
+      "unit": "″",
+      "importance": 0.00213
+    },
+    {
+      "feature": "koi_duration",
+      "label": "Длительность транзита",
+      "unit": "ч",
+      "importance": 0.00146
+    },
+    {
+      "feature": "koi_depth",
+      "label": "Глубина транзита",
+      "unit": "ppm",
+      "importance": 0.00139
+    },
+    {
+      "feature": "koi_kepmag",
+      "label": "Звёздная величина",
+      "unit": "mag",
+      "importance": 0.00111
+    },
+    {
+      "feature": "koi_model_snr",
+      "label": "Сигнал/шум транзита",
+      "unit": "",
+      "importance": 0.00101
+    },
+    {
+      "feature": "koi_fwm_stat_sig",
+      "label": "Значимость смещения центроида",
+      "unit": "%",
+      "importance": 0.00086
+    },
+    {
+      "feature": "koi_max_sngle_ev",
+      "label": "Макс. одиночная статистика SES",
+      "unit": "",
+      "importance": 0.00062
+    },
+    {
+      "feature": "koi_srho",
+      "label": "Плотность звезды из транзита",
+      "unit": "г/см³",
+      "importance": 0.00059
+    },
+    {
+      "feature": "koi_steff",
+      "label": "Температура звезды",
+      "unit": "K",
+      "importance": 0.00047
+    },
+    {
+      "feature": "koi_insol",
+      "label": "Инсоляция",
+      "unit": "S⊕",
+      "importance": 0.00036
+    },
+    {
+      "feature": "koi_period",
+      "label": "Орбитальный период",
+      "unit": "сут",
+      "importance": 0.00035
+    },
+    {
+      "feature": "koi_num_transits",
+      "label": "Число наблюдённых транзитов",
+      "unit": "",
+      "importance": 0.00026
+    },
+    {
+      "feature": "koi_impact",
+      "label": "Прицельный параметр",
+      "unit": "",
+      "importance": 0.00023
+    },
+    {
+      "feature": "koi_teq",
+      "label": "Равновесная температура",
+      "unit": "K",
+      "importance": 0.00019
+    },
+    {
+      "feature": "koi_smet",
+      "label": "Металличность звезды",
+      "unit": "dex",
+      "importance": 0.00011
+    },
+    {
+      "feature": "koi_slogg",
+      "label": "log g звезды",
+      "unit": "dex",
+      "importance": 5e-05
+    },
+    {
+      "feature": "koi_srad",
+      "label": "Радиус звезды",
+      "unit": "R☉",
+      "importance": 1e-05
+    },
+    {
+      "feature": "koi_incl",
+      "label": "Наклонение",
+      "unit": "°",
+      "importance": -1e-05
+    }
+  ],
+  "class_medians": {
+    "koi_period": {
+      "planet": 11.3501,
+      "false_positive": 5.2439
+    },
+    "koi_duration": {
+      "planet": 3.491,
+      "false_positive": 4.057
+    },
+    "koi_depth": {
+      "planet": 448.6,
+      "false_positive": 575.95
+    },
+    "koi_prad": {
+      "planet": 2.16,
+      "false_positive": 8.97
+    },
+    "koi_teq": {
+      "planet": 777.0,
+      "false_positive": 1152.5
+    },
+    "koi_insol": {
+      "planet": 86.245,
+      "false_positive": 424.01
+    },
+    "koi_model_snr": {
+      "planet": 28.6,
+      "false_positive": 34.25
+    },
+    "koi_impact": {
+      "planet": 0.412,
+      "false_positive": 0.6753
+    },
+    "koi_steff": {
+      "planet": 5617.0,
+      "false_positive": 5867.0
+    },
+    "koi_slogg": {
+      "planet": 4.459,
+      "false_positive": 4.431
+    },
+    "koi_srad": {
+      "planet": 0.961,
+      "false_positive": 1.01
+    },
+    "koi_kepmag": {
+      "planet": 14.615,
+      "false_positive": 14.3955
+    },
+    "koi_ror": {
+      "planet": 0.0208,
+      "false_positive": 0.0409
+    },
+    "koi_srho": {
+      "planet": 1.4104,
+      "false_positive": 0.4854
+    },
+    "koi_dor": {
+      "planet": 19.78,
+      "false_positive": 7.195
+    },
+    "koi_incl": {
+      "planet": 89.04,
+      "false_positive": 86.11
+    },
+    "koi_num_transits": {
+      "planet": 107.0,
+      "false_positive": 268.0
+    },
+    "koi_max_mult_ev": {
+      "planet": 23.9741,
+      "false_positive": 24.315
+    },
+    "koi_max_sngle_ev": {
+      "planet": 5.5789,
+      "false_positive": 7.4577
+    },
+    "koi_fwm_stat_sig": {
+      "planet": 0.067,
+      "false_positive": 0.0
+    },
+    "koi_dicco_msky": {
+      "planet": 0.26,
+      "false_positive": 1.64
+    },
+    "koi_dikco_msky": {
+      "planet": 0.32,
+      "false_positive": 1.5
+    },
+    "koi_smet": {
+      "planet": 0.0,
+      "false_positive": -0.16
+    }
+  },
+  "lite": {
+    "purpose": "Переносимая модель для TOI (TESS) и ручного ввода: только признаки, доступные вне пайплайна Kepler",
+    "features": [
+      {
+        "col": "koi_period",
+        "label": "Орбитальный период",
+        "unit": "сут"
+      },
+      {
+        "col": "koi_duration",
+        "label": "Длительность транзита",
+        "unit": "ч"
+      },
+      {
+        "col": "koi_depth",
+        "label": "Глубина транзита",
+        "unit": "ppm"
+      },
+      {
+        "col": "koi_prad",
+        "label": "Радиус кандидата",
+        "unit": "R⊕"
+      },
+      {
+        "col": "koi_teq",
+        "label": "Равновесная температура",
+        "unit": "K"
+      },
+      {
+        "col": "koi_insol",
+        "label": "Инсоляция",
+        "unit": "S⊕"
+      },
+      {
+        "col": "koi_model_snr",
+        "label": "Сигнал/шум транзита",
+        "unit": ""
+      },
+      {
+        "col": "koi_impact",
+        "label": "Прицельный параметр",
+        "unit": ""
+      },
+      {
+        "col": "koi_steff",
+        "label": "Температура звезды",
+        "unit": "K"
+      },
+      {
+        "col": "koi_slogg",
+        "label": "log g звезды",
+        "unit": "dex"
+      },
+      {
+        "col": "koi_srad",
+        "label": "Радиус звезды",
+        "unit": "R☉"
+      },
+      {
+        "col": "koi_kepmag",
+        "label": "Звёздная величина",
+        "unit": "mag"
+      }
+    ],
+    "metrics": {
+      "roc_auc": 0.9824,
+      "accuracy": 0.9374,
+      "precision": 0.9084,
+      "recall": 0.92,
+      "f1": 0.9142,
+      "n_train": 6068,
+      "n_test": 1518,
+      "n_confirmed": 2747,
+      "n_false_positive": 4839
+    },
+    "params": {
+      "min_samples_leaf": 40.0,
+      "max_leaf_nodes": 31.0,
+      "max_features": 0.6,
+      "learning_rate": 0.03,
+      "l2_regularization": 1.5
+    }
+  },
+  "notes": "Флаги вэттинга исключены во избежание утечки разметки. Модель оценивает вероятность того, что кандидат — планета, по параметрам транзита и звезды. Полная модель (23 признака) — для данных Kepler; lite (12) — для TOI и ручной проверки."
+}

@@ -79,3 +79,27 @@ agenthub/agents/youtube/db
 # Mobile development
 android-sdk/ frontend/node_modules/.cache/default-development/0.pack
 frontend/node_modules/.cache/default-development/0.pack
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Local logs and runtime state
+*.log
+*.err
+.pytest_cache/
+backend/models/cache/
+backend/models/lc_v3_chunks*/
+backend/models/*.npz
+backend/models/catalog_cache.json
+backend/models/toi_cache.json
+backend/models/*_url.txt
+backend/models/wd_*.txt
+backend/models/*_v3.onnx
+backend/models/lc_meta_v3.json
+
+# Tooling / drafts
+.emergent/
+frontend/.impeccable/
+post/
