@@ -23,6 +23,10 @@ FLUX_COLUMN = {"QLP": "SAP_FLUX", "EVEREST": "FLUX"}
 DEFAULT_FLUX_COLUMN = "PDCSAP_FLUX"
 
 
+class UnsupportedLightCurve(ValueError):
+    """Файл читается, но в нём нет знакомой колонки потока (чужой формат HLSP)."""
+
+
 @dataclass
 class LightCurve:
     time: np.ndarray
@@ -43,13 +47,18 @@ def read_lightcurve(path: Path, author: str) -> LightCurve:
     telescope = str(primary.get("TELESCOP") or primary.get("MISSION") or "").strip()
     flux_col = FLUX_COLUMN.get(author, DEFAULT_FLUX_COLUMN)
     if flux_col not in cols:
-        flux_col = next(c for c in ("PDCSAP_FLUX", "SAP_FLUX", "FLUX") if c in cols)
+        flux_col = next((c for c in ("PDCSAP_FLUX", "SAP_FLUX", "FLUX") if c in cols), None)
+    if flux_col is None or "TIME" not in cols:
+        raise UnsupportedLightCurve(f"нет колонки потока в {Path(path).name}")
     time = cols["TIME"].astype(float)
     flux = cols[flux_col].astype(float)
     keep = ~np.isnan(time)                       # lightkurve выкидывает строки с TIME=NaN
-    if "QUALITY" in cols:
-        bitmask = KEPLER_DEFAULT_BITMASK if telescope.lower() == "kepler" else TESS_DEFAULT_BITMASK
-        keep &= (cols["QUALITY"].astype(np.int64) & bitmask) == 0
+    # У TESS флаги в QUALITY, у Kepler/K2 — в SAP_QUALITY (как в read_kepler_lightcurve)
+    quality_col = next((c for c in ("QUALITY", "SAP_QUALITY") if c in cols), None)
+    if quality_col:
+        kepler_like = telescope.lower() in ("kepler", "k2")
+        bitmask = KEPLER_DEFAULT_BITMASK if kepler_like else TESS_DEFAULT_BITMASK
+        keep &= (cols[quality_col].astype(np.int64) & bitmask) == 0
     meta = {k: primary.get(k) for k in ("MISSION", "TELESCOP", "SECTOR", "QUARTER", "CAMPAIGN")}
     return LightCurve(time[keep], flux[keep], meta)
 

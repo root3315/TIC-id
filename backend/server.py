@@ -24,6 +24,7 @@ import uuid
 from datetime import datetime, timezone
 import httpx
 import asyncio
+from concurrent.futures import ProcessPoolExecutor
 import json
 import math
 from io import BytesIO
@@ -2241,6 +2242,10 @@ _lc_model = None
 _lc_meta: Optional[Dict[str, Any]] = None
 TOI_CACHE: Dict[str, Any] = {"rows": None, "ts": 0.0}
 LC_CACHE: Dict[str, Any] = {}
+# Анализ кривой — минуты численной работы на numpy: в отдельном процессе он не держит
+# GIL основного сервера. Одинаковые запросы, пока анализ идёт, ждут тот же результат.
+LC_POOL = ProcessPoolExecutor(max_workers=1)
+LC_INFLIGHT: Dict[str, "asyncio.Future"] = {}
 
 # поле запроса -> колонка KOI, на которой обучалась модель
 REQ2COL = {
@@ -2602,14 +2607,24 @@ def analyze_lightcurve_sync(target: str, period: Optional[float]) -> Dict[str, A
         return {"error": f"Кривая блеска для «{target}» не найдена в архивах MAST"}
     chosen, picked = mast_lite.choose_files(files)
 
-    lcs = []
+    lcs, unsupported = [], 0
     for f in picked:
+        path = None
         try:
-            lcs.append(lc_pipeline.read_lightcurve(mast_lite.download(f, FITS_CACHE_DIR), chosen))
+            path = mast_lite.download(f, FITS_CACHE_DIR)
+            lcs.append(lc_pipeline.read_lightcurve(path, chosen))
+        except lc_pipeline.UnsupportedLightCurve as e:
+            unsupported += 1
+            logger.warning(f"unsupported light curve ({f.filename}): {e}")
         except Exception as e:  # noqa: BLE001
             logger.warning(f"MAST download/read failed ({f.filename}): {e}")
+            if path is not None:
+                mast_lite.forget(path)      # битый файл не должен жить в кэше
     lcs = [lc for lc in lcs if len(lc)]
     if not lcs:
+        if unsupported == len(picked):
+            return {"error": f"У «{target}» есть только кривые в неподдерживаемом формате ({chosen}). "
+                             "Поддерживаются Kepler, K2, TESS SPOC, TESS-SPOC и QLP"}
         return {"error": "Не удалось скачать кривую блеска (MAST перегружен?)"}
 
     mission = str(lcs[0].meta.get("MISSION") or lcs[0].meta.get("TELESCOP") or "")
@@ -2762,11 +2777,9 @@ async def lightcurve(target: str = Query(..., min_length=2),
     if disk:
         LC_CACHE[key] = (now, disk)
         return disk
-    loop = asyncio.get_running_loop()
-    fut = loop.run_in_executor(None, analyze_lightcurve_sync, target, period)
-
     def _store_late(f):
         """Даже если клиент отвалился по таймауту — доложим результат в кэши."""
+        LC_INFLIGHT.pop(key, None)
         try:
             res = f.result()
             if isinstance(res, dict) and "error" not in res:
@@ -2774,7 +2787,12 @@ async def lightcurve(target: str = Query(..., min_length=2),
                 disk_cache_write("lightcurve", dkey, res)
         except Exception:  # noqa: BLE001
             pass
-    fut.add_done_callback(_store_late)
+
+    fut = LC_INFLIGHT.get(key)
+    if fut is None:
+        fut = asyncio.get_running_loop().run_in_executor(LC_POOL, analyze_lightcurve_sync, target, period)
+        LC_INFLIGHT[key] = fut
+        fut.add_done_callback(_store_late)
     try:
         result = await asyncio.wait_for(asyncio.shield(fut), timeout=420.0)
     except asyncio.TimeoutError:

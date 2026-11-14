@@ -96,11 +96,18 @@ def _table_dtype(header: Dict[str, Any]) -> np.dtype:
                      "itemsize": int(header["NAXIS1"])})
 
 
+def looks_like_fits(head: bytes) -> bool:
+    """Сигнатура FITS: файл начинается с карточки SIMPLE = T."""
+    return head[:6] == b"SIMPLE"
+
+
 def read_fits_table(path: Path) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, np.ndarray]]:
     """Возвращает (первичный заголовок, заголовок таблицы, колонки как float64/int)."""
     raw = Path(path).read_bytes()
     if raw[:2] == b"\x1f\x8b":
         raw = gzip.decompress(raw)
+    if not looks_like_fits(raw):
+        raise ValueError(f"FITS: {Path(path).name} — не FITS-файл")
     primary, pos = _read_header(raw, 0)
     pos += _data_bytes(primary)
     ext, pos = _read_header(raw, pos)

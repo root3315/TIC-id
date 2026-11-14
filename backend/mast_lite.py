@@ -3,8 +3,11 @@
 выбор файлов строже: один файл на квартал/сектор, без дублей разных каденций."""
 
 import json
+import os
 import re
-from collections import Counter
+import tempfile
+import threading
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -19,6 +22,10 @@ AUTHOR_PREF = ["Kepler", "SPOC", "TESS-SPOC", "K2", "EVEREST", "QLP"]
 MAX_SEGMENTS = 6
 NAME_RADIUS_DEG = 0.0001 / 3600       # lightkurve: 0.0001″ вокруг разрешённого имени
 TIMEOUT = httpx.Timeout(60.0, connect=20.0)
+CACHE_MAX_BYTES = 300 * 1024 * 1024    # FITS нужны только на время анализа; вердикты кэшируются отдельно
+_FILE_LOCKS: Dict[str, threading.Lock] = defaultdict(threading.Lock)
+_LOCKS_GUARD = threading.Lock()
+GZIP_MAGIC = bytes([0x1F, 0x8B])
 
 
 @dataclass
@@ -139,23 +146,58 @@ def choose_files(files: List[LcFile]) -> Tuple[str, List[LcFile]]:
     return author, chosen[:MAX_SEGMENTS]
 
 
+def _lock_for(name: str) -> threading.Lock:
+    with _LOCKS_GUARD:
+        return _FILE_LOCKS[name]
+
+
+def prune_cache(cache_dir: Path, max_bytes: int = CACHE_MAX_BYTES) -> None:
+    """Держим кэш FITS в пределах max_bytes: удаляем самые старые файлы."""
+    files = sorted((p for p in cache_dir.glob("*") if p.is_file()), key=lambda p: p.stat().st_mtime)
+    total = sum(p.stat().st_size for p in files)
+    for p in files:
+        if total <= max_bytes:
+            break
+        total -= p.stat().st_size
+        p.unlink(missing_ok=True)
+
+
 def download(f: LcFile, cache_dir: Path, client: Optional[httpx.Client] = None) -> Path:
-    """Скачивает файл один раз; повторные анализы читают его с диска."""
+    """Скачивает файл один раз; повторные анализы читают его с диска.
+
+    Один файл качает только один поток (блокировка на имя), запись идёт во
+    временный файл с уникальным именем и попадает в кэш, только если это FITS.
+    """
+    from fits_lite import looks_like_fits
+
     cache_dir.mkdir(parents=True, exist_ok=True)
     path = cache_dir / Path(f.filename).name
-    if path.exists() and path.stat().st_size > 0:
-        return path
-    own = client is None
-    client = client or httpx.Client(timeout=httpx.Timeout(180.0, connect=20.0), follow_redirects=True)
-    try:
-        tmp = path.with_suffix(".part")
-        with client.stream("GET", MAST_DOWNLOAD, params={"uri": f.uri}) as r:
-            r.raise_for_status()
-            with open(tmp, "wb") as out:
+    with _lock_for(path.name):
+        if path.exists() and path.stat().st_size > 0:
+            return path
+        own = client is None
+        client = client or httpx.Client(timeout=httpx.Timeout(180.0, connect=20.0), follow_redirects=True)
+        fd, tmp_name = tempfile.mkstemp(dir=cache_dir, suffix=".part")
+        try:
+            with os.fdopen(fd, "wb") as out, client.stream("GET", MAST_DOWNLOAD, params={"uri": f.uri}) as r:
+                r.raise_for_status()
                 for chunk in r.iter_bytes(1 << 16):
                     out.write(chunk)
-        tmp.replace(path)
-        return path
-    finally:
-        if own:
-            client.close()
+            with open(tmp_name, "rb") as check:
+                head = check.read(6)
+            if not looks_like_fits(head) and head[:2] != GZIP_MAGIC:
+                raise ValueError(f"MAST вернул не FITS для {f.filename}")
+            os.replace(tmp_name, path)
+        except BaseException:
+            Path(tmp_name).unlink(missing_ok=True)
+            raise
+        finally:
+            if own:
+                client.close()
+    prune_cache(cache_dir)
+    return path
+
+
+def forget(path: Path) -> None:
+    """Убрать из кэша файл, который не прочитался, чтобы следующий анализ скачал его заново."""
+    Path(path).unlink(missing_ok=True)

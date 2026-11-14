@@ -93,20 +93,20 @@ def _card(key, value):
     return f"{key:<8}= {value!s:>20}".ljust(80)
 
 
-def _fits_bytes(time, flux, quality):
+def _fits_bytes(time, flux, quality, telescope="TESS", quality_col="QUALITY"):
     def header(cards):
         text = "".join(cards) + "END".ljust(80)
         return (text + " " * (-len(text) % 2880)).encode("ascii")
     primary = header([_card("SIMPLE", True), _card("BITPIX", 8), _card("NAXIS", 0),
-                      _card("TELESCOP", "TESS"), _card("SECTOR", 8)])
-    rows = np.zeros(len(time), dtype=[("TIME", ">f8"), ("PDCSAP_FLUX", ">f4"), ("QUALITY", ">i4")])
-    rows["TIME"], rows["PDCSAP_FLUX"], rows["QUALITY"] = time, flux, quality
+                      _card("TELESCOP", telescope), _card("SECTOR", 8)])
+    rows = np.zeros(len(time), dtype=[("TIME", ">f8"), ("PDCSAP_FLUX", ">f4"), (quality_col, ">i4")])
+    rows["TIME"], rows["PDCSAP_FLUX"], rows[quality_col] = time, flux, quality
     data = rows.tobytes()
     ext = header([_card("XTENSION", "BINTABLE"), _card("BITPIX", 8), _card("NAXIS", 2),
                   _card("NAXIS1", 16), _card("NAXIS2", len(time)), _card("PCOUNT", 0), _card("GCOUNT", 1),
                   _card("TFIELDS", 3), _card("TTYPE1", "TIME"), _card("TFORM1", "D"),
                   _card("TTYPE2", "PDCSAP_FLUX"), _card("TFORM2", "E"),
-                  _card("TTYPE3", "QUALITY"), _card("TFORM3", "J")])
+                  _card("TTYPE3", quality_col), _card("TFORM3", "J")])
     return primary + ext + data + b"\0" * (-len(data) % 2880)
 
 
@@ -119,6 +119,42 @@ def test_read_lightcurve_applies_quality_and_nan_time(tmp_path):
     # QUALITY=8 (bit 4) входит в маску TESS по умолчанию; 8192 — нет
     assert list(lc.time) == [1.0, 4.0]
     assert list(lc.flux) == [10.0, 13.0]
+
+
+def test_kepler_quality_lives_in_sap_quality(tmp_path):
+    # у Kepler/K2 флаги в колонке SAP_QUALITY, а не QUALITY (как в read_kepler_lightcurve)
+    path = tmp_path / "kplr_llc.fits"
+    path.write_bytes(_fits_bytes([1.0, 2.0, 3.0], [10, 11, 12], [0, 32, 0],
+                                 telescope="Kepler", quality_col="SAP_QUALITY"))
+    lc = L.read_lightcurve(path, "Kepler")
+    assert list(lc.time) == [1.0, 3.0]
+
+
+def test_read_lightcurve_without_flux_column_is_a_clear_error(tmp_path):
+    path = tmp_path / "odd_lc.fits"
+    path.write_bytes(_fits_bytes([1.0], [10], [0]).replace(b"PDCSAP_FLUX", b"WEIRD_FLUXX"))
+    with pytest.raises(L.UnsupportedLightCurve):
+        L.read_lightcurve(path, "TGLC")
+
+
+def test_not_a_fits_file_is_rejected(tmp_path):
+    path = tmp_path / "html_lc.fits"
+    path.write_bytes(b"<html>MAST is down</html>")
+    with pytest.raises(ValueError):
+        read_fits_table(path)
+
+
+# ---------- кэш FITS ----------
+
+def test_prune_cache_keeps_newest_under_limit(tmp_path):
+    import os
+    import time
+    for i, name in enumerate(["a.fits", "b.fits", "c.fits"]):
+        f = tmp_path / name
+        f.write_bytes(b"x" * 100)
+        os.utime(f, (time.time() + i, time.time() + i))
+    M.prune_cache(tmp_path, max_bytes=250)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["b.fits", "c.fits"]
 
 
 # ---------- выбор файлов MAST ----------
