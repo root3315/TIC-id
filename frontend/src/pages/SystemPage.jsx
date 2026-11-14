@@ -322,7 +322,7 @@ const SystemPage = () => {
               <li key={p.name} className="border-b border-white/5">
                 <Link to={`/results?name=${encodeURIComponent(p.name)}`}
                       className="flex gap-3 py-3 text-slate-300 hover:bg-white/5" data-testid="system-planet-m">
-                  <PlanetVisual radius={p.radius_earth} teq={p.teq_k} mass={p.mass_earth} size={28} fit />
+                  <PlanetVisual radius={p.radius_earth} teq={p.teq_k} mass={p.mass_earth} size={28} />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center justify-between gap-2">
                       <span className="font-medium text-white truncate">{p.name}</span>
@@ -373,7 +373,7 @@ const SystemPage = () => {
                         <Link to={`/results?name=${encodeURIComponent(p.name)}`} onClick={(e) => e.stopPropagation()}
                               onFocus={() => setActive(p.name)} onBlur={() => setActive(null)}
                               className="font-medium text-white flex items-center gap-2.5 hover:text-cyan-200">
-                          <PlanetVisual radius={p.radius_earth} teq={p.teq_k} mass={p.mass_earth} size={22} fit />
+                          <PlanetVisual radius={p.radius_earth} teq={p.teq_k} mass={p.mass_earth} size={22} />
                           {p.name}
                           {habitable && (
                             <span className="tag tag-word" style={HZ_TAG}>{t("в зоне обитаемости", "habitable zone")}</span>

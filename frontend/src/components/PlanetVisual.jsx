@@ -1,7 +1,8 @@
 /**
  * CSS-портрет планеты: фактура подбирается по радиусу, температуре и плотности —
  * мини-нептуны с низкой плотностью рисуются газовыми, а не «землёй с континентами».
- * Лёгкий (без canvas), с кольцами для гигантов и ореолом атмосферы.
+ * Лёгкий (без canvas), с ореолом атмосферы. Колец не рисуем: в каталоге NASA
+ * их нет ни у одной планеты, а выдумывать их по размеру — неправда.
  */
 const paletteFor = (radius, teq, gaseous) => {
   const r = radius ?? 1.5;
@@ -23,12 +24,7 @@ const paletteFor = (radius, teq, gaseous) => {
   return { type: "desert", base: "#a87e58" };
 };
 
-/**
- * fit — весь рисунок, включая кольца гиганта, помещается в size × size.
- * Без fit кольца шире диска в 1,9 раза и выходят за его границы (так задумано
- * для больших портретов, но ломает узкие колонки и карточки).
- */
-const PlanetVisual = ({ radius, teq, mass, density, size = 200, className = "", fit = false }) => {
+const PlanetVisual = ({ radius, teq, mass, density, size = 200, className = "" }) => {
   const r = radius ?? 1.5;
   const d = density ?? (mass != null && radius != null && radius > 0
     ? (5.513 * mass) / radius ** 3
@@ -36,8 +32,7 @@ const PlanetVisual = ({ radius, teq, mass, density, size = 200, className = "", 
   const gaseous = r >= 2.7 || (r >= 1.8 && (d == null ? r >= 2.2 : d < 4));
   const p = paletteFor(radius, teq, gaseous);
   const hasAtmo = r < 2.7 && teq != null && teq > 150 && teq < 420;
-  const showRings = (radius ?? 0) >= 6;
-  const disk = fit && showRings ? Math.round(size / 1.95) : size;
+  const disk = size;
 
   let surface = null;
   let bg = "#334155";
@@ -99,26 +94,12 @@ const PlanetVisual = ({ radius, teq, mass, density, size = 200, className = "", 
     );
   }
 
-  const planet = (
+  return (
     <div
-      className={`relative ${fit ? "" : className}`}
+      className={`relative ${className}`}
       style={{ width: disk, height: disk }}
       aria-label="Иллюстрация планеты"
     >
-      {showRings && (
-        <div
-          className="absolute left-1/2 top-1/2 pointer-events-none"
-          style={{
-            width: disk * 1.9,
-            height: disk * 0.62,
-            transform: "translate(-50%, -50%) rotate(-16deg)",
-            borderRadius: "50%",
-            border: `${Math.max(3, disk * 0.03)}px solid rgba(214, 199, 170, 0.35)`,
-            boxShadow: "0 0 18px rgba(214,199,170,0.18)",
-            zIndex: 0,
-          }}
-        />
-      )}
       <div
         className="planet-sphere w-full h-full"
         style={{
@@ -131,28 +112,6 @@ const PlanetVisual = ({ radius, teq, mass, density, size = 200, className = "", 
       >
         {surface}
       </div>
-      {showRings && (
-        <div
-          className="absolute left-1/2 top-1/2 pointer-events-none"
-          style={{
-            width: disk * 1.9,
-            height: disk * 0.62,
-            transform: "translate(-50%, -50%) rotate(-16deg)",
-            borderRadius: "50%",
-            borderBottom: `${Math.max(3, disk * 0.03)}px solid rgba(224, 210, 182, 0.55)`,
-            borderLeft: "none",
-            borderTop: "none",
-            borderRight: "none",
-            zIndex: 2,
-          }}
-        />
-      )}
-    </div>
-  );
-  if (!fit) return planet;
-  return (
-    <div className={`relative flex items-center justify-center ${className}`} style={{ width: size, height: size }}>
-      {planet}
     </div>
   );
 };
