@@ -16,8 +16,7 @@ export const SOLAR_REFERENCE = [
 const finitePositive = (v) => Number.isFinite(v) && v > 0;
 
 /** Диапазон оси по данным: перицентры и апоцентры планет, зона обитаемости и
- *  дополнительные метки (место Земли). Звезда ось не растягивает: у красного
- *  карлика она съела бы половину ширины. Округление — до целых декад. */
+ *  дополнительные метки (место Земли, поверхность звезды). Округление — до целых декад. */
 export function axisDomain({ planets = [], hz = null, extra = [] }) {
   const values = [];
   planets.forEach((p) => {
@@ -74,3 +73,11 @@ export const planetLetter = (name, host) => {
 
 export const inHabitableZone = (a, hz) =>
   Boolean(hz && Number.isFinite(a) && a >= hz.inner_optimistic && a <= hz.outer_optimistic);
+
+/** Подписи вдоль вертикальной оси: каждая не выше своей точки и не ближе minGap
+ *  к предыдущей. ys отсортированы по возрастанию; порядок сохраняется. */
+export function stackLabels(ys, minGap = 18) {
+  const out = [];
+  ys.forEach((y, i) => out.push(i === 0 ? y : Math.max(y, out[i - 1] + minGap)));
+  return out;
+}

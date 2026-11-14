@@ -1,5 +1,6 @@
 import {
   axisDomain, earthEquivalentAu, decadeTicks, labelLanes, logX, planetDotRadius, planetLetter, inHabitableZone,
+  stackLabels,
 } from "./systemScale";
 
 test("domain covers every apoapsis without stretching to 1 AU", () => {
@@ -67,4 +68,13 @@ test("a tiny star does not stretch the axis (TRAPPIST-1)", () => {
   const [lo, hi] = axisDomain({ planets: [{ a_au: 0.0115 }, { a_au: 0.0619 }] });
   expect(lo).toBe(0.001);
   expect(hi).toBe(0.1);
+});
+
+describe("stackLabels", () => {
+  it("keeps labels at their points when there is room", () => {
+    expect(stackLabels([10, 40, 90])).toEqual([10, 40, 90]);
+  });
+  it("pushes crowded labels down, never up", () => {
+    expect(stackLabels([10, 15, 20, 80], 18)).toEqual([10, 28, 46, 80]);
+  });
 });

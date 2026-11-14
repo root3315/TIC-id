@@ -20,7 +20,7 @@ const SystemOrbits = ({ star, planets, hz, height = 360, centerX = 0.5 }) => {
     const ctx = canvas.getContext("2d");
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const css = getComputedStyle(document.documentElement);
-    const indigo = css.getPropertyValue("--data-indigo").trim() || "#818cf8";
+    const planetInk = css.getPropertyValue("--data-planet").trim() || "#c9cfe6";
     const rule = css.getPropertyValue("--rule").trim() || "rgba(148,163,253,0.11)";
     const ink3 = css.getPropertyValue("--ink-3").trim() || "#79849f";
     const habitable = css.getPropertyValue("--data-habitable").trim() || "#4ade80";
@@ -71,8 +71,15 @@ const SystemOrbits = ({ star, planets, hz, height = 360, centerX = 0.5 }) => {
           ctx.fillStyle = withAlpha(habitable, alpha);
           ctx.fill();
         };
-        ring(hz.inner_optimistic, hz.outer_optimistic, 0.08);
-        ring(hz.inner_conservative, hz.outer_conservative, 0.12);
+        ring(hz.inner_conservative, hz.outer_conservative, 0.05);
+        // границы зоны — тонкими линиями, а не заливкой во всю сцену
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = withAlpha(habitable, 0.45);
+        [hz.inner_conservative, hz.outer_conservative].forEach((a) => {
+          ctx.beginPath();
+          ctx.arc(cx, cy, a * scale, 0, Math.PI * 2);
+          ctx.stroke();
+        });
       }
 
       ctx.lineWidth = 1;
@@ -88,16 +95,19 @@ const SystemOrbits = ({ star, planets, hz, height = 360, centerX = 0.5 }) => {
         ctx.restore();
       });
 
-      // Звезда: в масштабе, если она видна, иначе точка с ореолом
+      // Звезда: диск в масштабе (не меньше 4px) и узкая корона — не размытое пятно
       const sColor = starColor(star.temperature);
       const sr = Math.max(starR * scale, 4);
-      const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, sr * 3);
-      glow.addColorStop(0, sColor);
-      glow.addColorStop(0.33, sColor);
-      glow.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = glow;
+      const corona = ctx.createRadialGradient(cx, cy, sr, cx, cy, sr * 1.6);
+      corona.addColorStop(0, withAlpha(sColor, 0.35));
+      corona.addColorStop(1, withAlpha(sColor, 0));
+      ctx.fillStyle = corona;
       ctx.beginPath();
-      ctx.arc(cx, cy, sr * 3, 0, Math.PI * 2);
+      ctx.arc(cx, cy, sr * 1.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = sColor;
+      ctx.beginPath();
+      ctx.arc(cx, cy, sr, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.font = "500 12px 'IBM Plex Mono', monospace";
@@ -107,7 +117,7 @@ const SystemOrbits = ({ star, planets, hz, height = 360, centerX = 0.5 }) => {
         const r = planetDotRadius(o.radius_earth) * 0.8;
         ctx.beginPath();
         ctx.arc(px, py, r, 0, Math.PI * 2);
-        ctx.fillStyle = indigo;
+        ctx.fillStyle = planetInk;
         ctx.fill();
         if (inHabitableZone(o.a_au, hz)) {
           ctx.lineWidth = 1.5;
