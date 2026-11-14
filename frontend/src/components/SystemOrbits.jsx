@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { starColor } from "@/lib/format";
-import { AU_PER_SOLAR_RADIUS, planetLetter } from "@/lib/systemScale";
+import { AU_PER_SOLAR_RADIUS, inHabitableZone, planetDotRadius, planetLetter } from "@/lib/systemScale";
 
 const GOLDEN_ANGLE = 2.39996;
 const INNER_ORBIT_SECONDS = 6;
@@ -9,7 +9,7 @@ const INNER_ORBIT_SECONDS = 6;
  * Вид системы сверху в линейном масштабе. Скорости честные (относительно
  * периодов), а повороты орбит условные: в каталоге нет аргумента перицентра.
  */
-const SystemOrbits = ({ star, planets, hz, height = 360 }) => {
+const SystemOrbits = ({ star, planets, hz, height = 360, centerX = 0.5 }) => {
   const canvasRef = useRef(null);
   const wrapRef = useRef(null);
 
@@ -23,6 +23,11 @@ const SystemOrbits = ({ star, planets, hz, height = 360 }) => {
     const indigo = css.getPropertyValue("--data-indigo").trim() || "#818cf8";
     const rule = css.getPropertyValue("--rule").trim() || "rgba(148,163,253,0.11)";
     const ink3 = css.getPropertyValue("--ink-3").trim() || "#79849f";
+    const habitable = css.getPropertyValue("--data-habitable").trim() || "#4ade80";
+    const withAlpha = (hex, a) => {
+      const n = parseInt(hex.replace("#", ""), 16);
+      return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+    };
 
     const orbits = placed.map((p, i) => {
       const e = Number.isFinite(p.eccentricity) ? Math.min(Math.max(p.eccentricity, 0), 0.9) : 0;
@@ -52,9 +57,10 @@ const SystemOrbits = ({ star, planets, hz, height = 360 }) => {
     };
 
     const draw = () => {
-      const cx = W / 2;
+      const cx = W * centerX;
       const cy = height / 2;
-      const scale = Math.min(W, height) / 2 / fit;
+      const room = Math.min(height / 2, cx, W - cx) - 14;
+      const scale = Math.max(room, 40) / fit;
       ctx.clearRect(0, 0, W, height);
 
       if (hz) {
@@ -62,7 +68,7 @@ const SystemOrbits = ({ star, planets, hz, height = 360 }) => {
           ctx.beginPath();
           ctx.arc(cx, cy, b * scale, 0, Math.PI * 2);
           ctx.arc(cx, cy, a * scale, 0, Math.PI * 2, true);
-          ctx.fillStyle = `rgba(34,197,94,${alpha})`;
+          ctx.fillStyle = withAlpha(habitable, alpha);
           ctx.fill();
         };
         ring(hz.inner_optimistic, hz.outer_optimistic, 0.08);
@@ -94,16 +100,22 @@ const SystemOrbits = ({ star, planets, hz, height = 360 }) => {
       ctx.arc(cx, cy, sr * 3, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.font = "11px 'IBM Plex Mono', monospace";
+      ctx.font = "500 12px 'IBM Plex Mono', monospace";
       ctx.textAlign = "left";
       orbits.forEach((o) => {
         const [px, py] = point(o, cx, cy, scale);
+        const r = planetDotRadius(o.radius_earth) * 0.8;
         ctx.beginPath();
-        ctx.arc(px, py, 3.5, 0, Math.PI * 2);
+        ctx.arc(px, py, r, 0, Math.PI * 2);
         ctx.fillStyle = indigo;
         ctx.fill();
+        if (inHabitableZone(o.a_au, hz)) {
+          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = habitable;
+          ctx.stroke();
+        }
         ctx.fillStyle = ink3;
-        ctx.fillText(planetLetter(o.name, star.name), px + 6, py - 6);
+        ctx.fillText(planetLetter(o.name, star.name), px + r + 4, py - r - 2);
       });
     };
 
@@ -133,7 +145,7 @@ const SystemOrbits = ({ star, planets, hz, height = 360 }) => {
       cancelAnimationFrame(raf);
       ro.disconnect();
     };
-  }, [star, planets, hz, height]);
+  }, [star, planets, hz, height, centerX]);
 
   return (
     <div ref={wrapRef} className="w-full">

@@ -15,11 +15,11 @@ export const SOLAR_REFERENCE = [
 
 const finitePositive = (v) => Number.isFinite(v) && v > 0;
 
-/** Диапазон оси: все планеты с перицентрами и апоцентрами, зона обитаемости
- *  и обязательно 1 а.е., чтобы сравнение с Землёй было всегда. Звезда ось не
- *  растягивает: у красного карлика она съела бы половину ширины. */
-export function axisDomain({ planets = [], hz = null }) {
-  const values = [0.5, 2];
+/** Диапазон оси по данным: перицентры и апоцентры планет, зона обитаемости и
+ *  дополнительные метки (место Земли). Звезда ось не растягивает: у красного
+ *  карлика она съела бы половину ширины. Округление — до целых декад. */
+export function axisDomain({ planets = [], hz = null, extra = [] }) {
+  const values = [];
   planets.forEach((p) => {
     if (!finitePositive(p.a_au)) return;
     const e = Number.isFinite(p.eccentricity) ? Math.min(Math.max(p.eccentricity, 0), 0.95) : 0;
@@ -28,10 +28,16 @@ export function axisDomain({ planets = [], hz = null }) {
   if (hz && finitePositive(hz.inner_optimistic) && finitePositive(hz.outer_optimistic)) {
     values.push(hz.inner_optimistic, hz.outer_optimistic);
   }
+  extra.filter(finitePositive).forEach((v) => values.push(v));
+  if (!values.length) return [0.1, 10];
   const lo = Math.min(...values);
   const hi = Math.max(...values);
   return [10 ** Math.floor(Math.log10(lo * 0.7)), 10 ** Math.ceil(Math.log10(hi * 1.4))];
 }
+
+/** Где планета получала бы столько же света, сколько Земля от Солнца: √L а.е. */
+export const earthEquivalentAu = (luminositySun) =>
+  finitePositive(luminositySun) ? Math.sqrt(luminositySun) : null;
 
 export const logX = ([lo, hi], width) => (au) =>
   ((Math.log10(au) - Math.log10(lo)) / (Math.log10(hi) - Math.log10(lo))) * width;

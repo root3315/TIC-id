@@ -233,17 +233,20 @@ const ResultsPage = () => {
                   {data.tic_id ? ` · ${data.tic_id}` : ""}
                 </p>
               </div>
-              <span className={`tag tag-word hidden md:inline-flex ${categoryStyle(hab.category)}`}>
-                {hab.category_ru || "—"}
-              </span>
-              {disc.controversial && (
-                <span className="tag tag-word hidden md:inline-flex"
-                  style={{ color: "#fcd34d", borderColor: "rgba(251,191,36,.4)", background: "rgba(251,191,36,.08)" }}>
-                  {t("спорная", "disputed")}
+              {/* .tag задаёт display и перебил бы hidden — прячем обёртку, а не сам тег */}
+              <span className="hidden md:inline-flex gap-2 shrink-0">
+                <span className={`tag tag-word ${categoryStyle(hab.category)}`}>
+                  {hab.category_ru || "—"}
                 </span>
-              )}
+                {disc.controversial && (
+                  <span className="tag tag-word"
+                    style={{ color: "#fcd34d", borderColor: "rgba(251,191,36,.4)", background: "rgba(251,191,36,.08)" }}>
+                    {t("спорная", "disputed")}
+                  </span>
+                )}
+              </span>
             </div>
-            <div className="flex gap-2 shrink-0">
+            <div className="flex flex-wrap gap-2">
               <Button
                 size="sm"
                 variant="outline"
@@ -261,6 +264,7 @@ const ResultsPage = () => {
                 className="btn-quiet rounded-lg"
                 style={fav ? { color: "#fbbf24", borderColor: "rgba(251,191,36,.45)" } : undefined}
                 title={fav ? t("Убрать из избранного", "Remove from favorites") : t("В избранное", "Add to favorites")}
+                aria-label={fav ? t("Убрать из избранного", "Remove from favorites") : t("В избранное", "Add to favorites")}
                 data-testid="fav-button"
               >
                 <Star className={`w-4 h-4 ${fav ? "fill-amber-300" : ""}`} />
@@ -271,9 +275,10 @@ const ResultsPage = () => {
                 onClick={() => navigate(`/ai-detector?target=${encodeURIComponent(data.tic_id || data.host_star?.name || data.name)}&period=${data.orbital_params?.period || ""}`)}
                 className="btn-quiet rounded-lg"
                 title={t("Проверить кривую блеска и вердикт ML-модели", "Check the light curve and the ML model's verdict")}
+                aria-label={t("AI-детектор", "AI detector")}
                 data-testid="ai-detector-button"
               >
-                <Radar className="w-4 h-4 mr-1.5" />
+                <Radar className="w-4 h-4 sm:mr-1.5" />
                 <span className="hidden sm:inline">{t("AI-детектор", "AI detector")}</span>
               </Button>
               <CompareDialog basePlanet={data}>
@@ -282,9 +287,10 @@ const ResultsPage = () => {
                   variant="outline"
                   className="btn-quiet rounded-lg"
                   data-testid="compare-button"
+                  aria-label={t("Сравнить", "Compare")}
                 >
-                  <Scale className="w-4 h-4 mr-1.5" />
-                  {t("Сравнить", "Compare")}
+                  <Scale className="w-4 h-4 sm:mr-1.5" />
+                  <span className="hidden sm:inline">{t("Сравнить", "Compare")}</span>
                 </Button>
               </CompareDialog>
               <Button
@@ -294,11 +300,12 @@ const ResultsPage = () => {
                 size="sm"
                 variant="outline"
                 className="btn-quiet rounded-lg"
-                title={t("Скачать красивое досье планеты в PDF", "Download a nice planet dossier as PDF")}
+                title={t("Скачать досье планеты в PDF", "Download the planet dossier as PDF")}
+                aria-label={t("Скачать досье в PDF", "Download dossier as PDF")}
               >
                 {dossierBusy
-                  ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-                  : <FileDown className="w-4 h-4 mr-1.5" />}
+                  ? <Loader2 className="w-4 h-4 sm:mr-1.5 animate-spin" />
+                  : <FileDown className="w-4 h-4 sm:mr-1.5" />}
                 <span className="hidden sm:inline">{t("Досье", "Dossier")}</span>
               </Button>
               <Button
@@ -307,9 +314,10 @@ const ResultsPage = () => {
                 size="sm"
                 variant="outline"
                 className="btn-quiet rounded-lg"
+                aria-label={t("Скачать данные в JSON", "Download data as JSON")}
               >
-                <Download className="w-4 h-4 mr-1.5" />
-                JSON
+                <Download className="w-4 h-4 sm:mr-1.5" />
+                <span className="hidden sm:inline">JSON</span>
               </Button>
             </div>
           </div>

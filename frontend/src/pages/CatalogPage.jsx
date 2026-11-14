@@ -85,7 +85,7 @@ const PlanetCard = ({ r, onOpen, index }) => {
         )}
       </span>
       <div className="flex items-start gap-4">
-        <PlanetVisual radius={r.pl_rade} teq={r.pl_eqt} mass={r.pl_bmasse} size={58} />
+        <PlanetVisual radius={r.pl_rade} teq={r.pl_eqt} mass={r.pl_bmasse} size={58} fit />
         <div className="flex-1 min-w-0 pr-10">
           <div className="font-semibold text-white truncate">{r.pl_name}</div>
           <div className="text-xs truncate mt-0.5" style={{ color: "var(--ink-3)" }}>{r.hostname}</div>

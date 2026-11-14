@@ -546,11 +546,11 @@ const SearchPage = () => {
               <DraggableBlock bhRef={bhRef} canDrag={canDrag} onSwallow={onSwallow} outerClassName="inline-block">
                 <div className="label-mono mb-6 flex items-center gap-2.5">
                   <span className="dot" style={{ background: "var(--beam)" }} />
-                  <span>NASA Exoplanet Archive · pscomppars</span>
+                  <span>NASA Exoplanet Archive<span className="hidden sm:inline"> · pscomppars</span></span>
                   {stats && (
                     <>
-                      <span style={{ color: "var(--ink-4)" }}>/</span>
-                      <span style={{ color: "var(--ink-4)" }}>
+                      <span className="hidden sm:inline" style={{ color: "var(--ink-4)" }}>/</span>
+                      <span className="hidden sm:inline" style={{ color: "var(--ink-4)" }}>
                         {new Date(stats.updated_at).toLocaleDateString("ru-RU")}
                       </span>
                     </>
