@@ -1,0 +1,38 @@
+{
+  "trained_at": "2026-07-09 19:58",
+  "arch": "двухветочная 1D-CNN (AstroNet-подобная), PyTorch → ONNX",
+  "device": "NVIDIA GeForce RTX 3070 Laptop GPU",
+  "n_params": 117955,
+  "classes": [
+    "планетный транзит",
+    "затменная двойная",
+    "нет транзита"
+  ],
+  "n_train": 59454,
+  "n_real": 9467,
+  "n_real_test": 2318,
+  "split_by_star": true,
+  "accuracy": 0.8619,
+  "f1_macro": 0.8089,
+  "accuracy_synthetic": 1.0,
+  "confusion_matrix": [
+    [
+      217,
+      25,
+      150
+    ],
+    [
+      45,
+      523,
+      64
+    ],
+    [
+      27,
+      9,
+      1258
+    ]
+  ],
+  "real_data": true,
+  "cnn": true,
+  "notes": "CNN обучена на 24 000 синтетических двухветочных примеров + реальных кривых Kepler (×6); метрика — на отложенных РЕАЛЬНЫХ кривых."
+}
