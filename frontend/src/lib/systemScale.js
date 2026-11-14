@@ -3,16 +3,6 @@
 
 export const AU_PER_SOLAR_RADIUS = 0.00465047;
 
-// Опорные точки Солнечной системы под линейкой: «где была бы Земля».
-export const SOLAR_REFERENCE = [
-  { ru: "Меркурий", en: "Mercury", a: 0.387 },
-  { ru: "Земля", en: "Earth", a: 1.0 },
-  { ru: "Марс", en: "Mars", a: 1.524 },
-  { ru: "Юпитер", en: "Jupiter", a: 5.203 },
-  { ru: "Сатурн", en: "Saturn", a: 9.537 },
-  { ru: "Нептун", en: "Neptune", a: 30.07 },
-];
-
 const finitePositive = (v) => Number.isFinite(v) && v > 0;
 
 /** Диапазон оси по данным: перицентры и апоцентры планет, зона обитаемости и

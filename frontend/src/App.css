@@ -518,8 +518,7 @@ button, a, input, select {
 
 .ss .ss-hz-label,
 .ss .ss-star-label,
-.ss-earth text,
-.ss .ss-solar-title {
+.ss-earth text {
   font-family: 'IBM Plex Sans', system-ui, sans-serif;
   font-size: 12px;
   font-weight: 500;
@@ -620,43 +619,11 @@ button, a, input, select {
   stroke-width: 2px;
 }
 
-.ss-solar line {
-  stroke: var(--rule);
-  stroke-dasharray: 2 4;
-}
-
-.ss-solar circle {
-  fill: var(--ink-4);
-}
-
-.ss-solar text,
-.ss .ss-solar-title {
-  fill: var(--ink-3);
-}
-
 .ss .ss-earth-sub {
   font-family: 'IBM Plex Sans', system-ui, sans-serif;
   font-size: 11px;
   font-weight: 400;
   fill: var(--ink-3);
-}
-
-/* Стрелка «настоящая Земля → место Земли у этой звезды» */
-.ss-shift path {
-  fill: none;
-  stroke: var(--ink-2);
-  stroke-width: 1.25px;
-  stroke-dasharray: 3 3;
-}
-
-.ss-shift text {
-  fill: var(--ink-2);
-}
-
-.ss-shift .ss-arrow-head,
-.ss-arrow-head {
-  fill: var(--ink-2);
-  stroke: none;
 }
 
 /* Искатель телескопа и пустые орбиты на месте будущей системы */
