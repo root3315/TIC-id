@@ -32,6 +32,8 @@ from urllib.parse import quote
 from PIL import Image, ImageDraw, ImageFilter
 import numpy as np
 
+import lc_pipeline
+import mast_lite
 import systems
 
 ROOT_DIR = Path(__file__).parent
@@ -2264,20 +2266,33 @@ class ClassifyRequest(BaseModel):
     mag: Optional[float] = None
 
 
+class OnnxClassifier:
+    """Модель sklearn, экспортированная в ONNX (export_onnx.py): тот же predict_proba,
+    но без scikit-learn на сервере — только onnxruntime."""
+
+    def __init__(self, path: Path):
+        import onnxruntime as ort
+        self._sess = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+        self._input = self._sess.get_inputs()[0].name
+
+    def predict_proba(self, x) -> np.ndarray:
+        x = np.asarray(x, dtype=np.float32)
+        return np.asarray(self._sess.run(None, {self._input: x})[1], dtype=float)
+
+
 def load_ml():
     global _ml_model, _ml_meta, _ml_lite
-    if _ml_model is None and (MODELS_DIR / "exoplanet_clf.joblib").exists():
-        import joblib
-        _ml_model = joblib.load(MODELS_DIR / "exoplanet_clf.joblib")
+    if _ml_model is None and (MODELS_DIR / "exoplanet_clf.onnx").exists():
+        _ml_model = OnnxClassifier(MODELS_DIR / "exoplanet_clf.onnx")
         _ml_meta = json.loads((MODELS_DIR / "model_meta.json").read_text(encoding="utf-8"))
         logger.info("ML-классификатор KOI загружен")
-        lite_path = MODELS_DIR / "exoplanet_clf_lite.joblib"
+        lite_path = MODELS_DIR / "exoplanet_clf_lite.onnx"
         if lite_path.exists() and _ml_meta.get("lite"):
-            _ml_lite = joblib.load(lite_path)
+            _ml_lite = OnnxClassifier(lite_path)
             logger.info("Переносимая lite-модель (TOI/ручной ввод) загружена")
         else:
             logger.warning("Lite-модель не найдена — TOI/ручной ввод пойдут через полную "
-                           "(вероятности будут занижены; запустите python train_model.py)")
+                           "(вероятности будут занижены; запустите train_model.py и export_onnx.py)")
     return _ml_model
 
 
@@ -2297,9 +2312,8 @@ def _tabular_infer(values_by_col: Dict[str, Optional[float]]):
 
 def load_lc_model():
     global _lc_model, _lc_meta
-    if _lc_model is None and (MODELS_DIR / "lc_mlp.joblib").exists():
-        import joblib
-        _lc_model = joblib.load(MODELS_DIR / "lc_mlp.joblib")
+    if _lc_model is None and (MODELS_DIR / "lc_mlp.onnx").exists():
+        _lc_model = OnnxClassifier(MODELS_DIR / "lc_mlp.onnx")
         if _lc_meta is None:
             _lc_meta = json.loads((MODELS_DIR / "lc_meta.json").read_text(encoding="utf-8"))
         logger.info("Нейросеть кривых блеска (MLP) загружена")
@@ -2507,40 +2521,30 @@ async def ml_toi(disp: str = Query("PC,APC"), limit: int = Query(60, le=200),
 # ---------- Анализ реальных кривых блеска ----------
 
 def run_bls(time_v: np.ndarray, flux_v: np.ndarray) -> Optional[Dict[str, Any]]:
-    """Поиск периода транзита алгоритмом Box Least Squares (astropy)."""
+    """Поиск периода транзита алгоритмом Box Least Squares (порт astropy на numpy)."""
     try:
-        from astropy.timeseries import BoxLeastSquares
-
         # биннинг: BLS по ~10 тыс. точек считается за секунды
         span = float(time_v[-1] - time_v[0])
         if span < 2.0:
             return None
         bin_days = (30.0 if span > 60 else 10.0) / 1440.0
-        nb = max(200, int(span / bin_days))
-        edges = np.linspace(time_v[0], time_v[-1], nb + 1)
-        idx = np.clip(np.digitize(time_v, edges) - 1, 0, nb - 1)
-        sums = np.bincount(idx, weights=flux_v, minlength=nb)
-        counts = np.bincount(idx, minlength=nb)
-        mask = counts > 0
-        t = ((edges[:-1] + edges[1:]) / 2)[mask]
-        f = (sums[mask] / counts[mask])
+        t, f = lc_pipeline.bin_time_series(time_v, flux_v, bin_days)
 
         max_period = min(span / 2.5, 30.0)
         min_period = 0.3
         if max_period <= min_period * 1.2:
             return None
-        bls = BoxLeastSquares(t, f)
         durations = np.array([0.02, 0.05, 0.09, 0.15, 0.25])
         durations = durations[durations < min_period * 0.95]
         # проход 1: логарифмическая сетка по всему диапазону
         periods = np.geomspace(min_period, max_period, 12000)
-        pg = bls.power(periods, durations)
+        pg = lc_pipeline.bls_power(t, f, periods, durations)
         power = np.asarray(pg.power, dtype=float)
         best = int(np.nanargmax(power))
         # проход 2: уточнение узкой линейной сеткой вокруг пика
         p_lo, p_hi = periods[best] * 0.99, periods[best] * 1.01
         fine = np.linspace(p_lo, p_hi, 2000)
-        pg_fine = bls.power(fine, durations)
+        pg_fine = lc_pipeline.bls_power(t, f, fine, durations)
         best_fine = int(np.nanargmax(pg_fine.power))
         # подменяем найденный пик уточнённым значением
         periods = np.asarray(periods, dtype=float)
@@ -2589,61 +2593,45 @@ def run_bls(time_v: np.ndarray, flux_v: np.ndarray) -> Optional[Dict[str, Any]]:
         return None
 
 
-def analyze_lightcurve_sync(target: str, period: Optional[float]) -> Dict[str, Any]:
-    import lightkurve as lk
-    sr = lk.search_lightcurve(target)
-    if len(sr) == 0:
-        return {"error": f"Кривая блеска для «{target}» не найдена в архивах MAST"}
+FITS_CACHE_DIR = DISK_CACHE_DIR / "fits"
 
-    authors = [str(a) for a in sr.author]
-    counts: Dict[str, int] = {}
-    for a in authors:
-        counts[a] = counts.get(a, 0) + 1
-    # выбираем автора с максимальным покрытием: длинная база — чистая сложенная кривая
-    pref = ["Kepler", "SPOC", "TESS-SPOC", "K2", "EVEREST", "QLP"]
-    known = [a for a in pref if counts.get(a)]
-    if known:
-        chosen = max(known, key=lambda a: (counts[a], -pref.index(a)))
-    else:
-        chosen = authors[0]
-    idxs = [i for i, a in enumerate(authors) if a == chosen][:6]
+
+def analyze_lightcurve_sync(target: str, period: Optional[float]) -> Dict[str, Any]:
+    files = mast_lite.search_files(target)
+    if not files:
+        return {"error": f"Кривая блеска для «{target}» не найдена в архивах MAST"}
+    chosen, picked = mast_lite.choose_files(files)
 
     lcs = []
-    for i in idxs:
+    for f in picked:
         try:
-            one = sr[i].download()
-            if one is not None:
-                lcs.append(one)
+            lcs.append(lc_pipeline.read_lightcurve(mast_lite.download(f, FITS_CACHE_DIR), chosen))
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"lightkurve download failed ({i}): {e}")
+            logger.warning(f"MAST download/read failed ({f.filename}): {e}")
+    lcs = [lc for lc in lcs if len(lc)]
     if not lcs:
         return {"error": "Не удалось скачать кривую блеска (MAST перегружен?)"}
 
     mission = str(lcs[0].meta.get("MISSION") or lcs[0].meta.get("TELESCOP") or "")
     who = mission if mission.lower() == chosen.lower() else f"{mission} · {chosen}"
     if len(lcs) > 1:
-        lc = lk.LightCurveCollection(lcs).stitch()
         source_label = f"{who} · сегментов данных: {len(lcs)}"
     else:
-        lc = lcs[0]
-        seg = lc.meta.get("SECTOR") or lc.meta.get("QUARTER") or lc.meta.get("CAMPAIGN")
+        seg = lcs[0].meta.get("SECTOR") or lcs[0].meta.get("QUARTER") or lcs[0].meta.get("CAMPAIGN")
         source_label = f"{who}{f' · сектор {seg}' if seg else ''}"
 
-    lc = lc.remove_nans().remove_outliers(sigma=6).normalize()
-    order_t = np.argsort(np.asarray(lc.time.value, dtype=float))
-    lc = lc[order_t]
-    time_v = np.asarray(lc.time.value, dtype=float)
+    lc = lc_pipeline.prepare(lcs)
+    time_v = lc.time
     if len(time_v) < 100:
         return {"error": "Слишком мало точек в кривой блеска"}
     cad_days = float(np.median(np.diff(time_v)))
     wl = max(51, int(round(0.75 / max(cad_days, 1e-5))))
     wl += (wl + 1) % 2
     try:
-        flat = lc.flatten(window_length=min(wl, (len(lc) // 2) * 2 - 1))
+        flat = lc_pipeline.flatten(lc, window_length=min(wl, (len(lc) // 2) * 2 - 1))
     except Exception:  # noqa: BLE001
         flat = lc
-    time_v = np.asarray(flat.time.value, dtype=float)
-    flux_v = np.asarray(flat.flux.value, dtype=float)
+    time_v, flux_v = flat.time, flat.flux
     ok = np.isfinite(time_v) & np.isfinite(flux_v)
     time_v, flux_v = time_v[ok], flux_v[ok]
 
