@@ -43,6 +43,7 @@
   /* --- Цвета данных: графики, диски, статусы. Не для хрома --- */
   --data-indigo: #818cf8;
   --data-violet: #c084fc;
+  --data-habitable: #4ade80;   /* зона обитаемости — тоже данные */
 
   /* --- Совместимость со старыми именами --- */
   --space-950: #05081a;
@@ -511,30 +512,301 @@ button, a, input, select {
   stroke-width: 2px;
 }
 
-/* Таблица планет системы: строки разделены волосяной линией, без зебры. */
-.sys-table th {
-  font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+.sr-caption {
+  margin-top: 12px;
+  max-width: 76ch;
+  font-size: 13px;
+  line-height: 1.55;
   color: var(--ink-3);
-  text-align: right;
-  padding: 0 0 10px 18px;
-  white-space: nowrap;
 }
 
-.sys-table td {
-  font-variant-numeric: tabular-nums;
+/* ---------- Страница системы: сцена → масштаб → планеты ----------
+   Без коробок: зоны разделены воздухом, а не рамками. Крупно — только имя
+   звезды и сама сцена; числа набраны данными, подписи — обычным регистром. */
+.sys-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 28px;
+  font-size: 14px;
+}
+
+.sys-stage {
+  display: grid;
+}
+
+.sys-stage__text {
+  order: -1;
+  padding-top: 28px;
+  min-width: 0;
+}
+
+.sys-name {
+  font-size: clamp(44px, 7.4vw, 88px);
+  font-weight: 600;
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.sys-designation {
+  margin-top: 14px;
+  font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+  font-size: 14px;
+  color: var(--ink-3);
+  white-space: pre-wrap;
+}
+
+.sys-lede {
+  margin-top: 22px;
+  max-width: 32rem;
+  font-size: clamp(17px, 1.5vw, 19px);
+  line-height: 1.6;
   color: var(--ink-2);
-  text-align: right;
-  padding: 11px 0 11px 18px;
-  border-top: 1px solid var(--rule);
+  text-wrap: pretty;
+}
+
+.sys-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px 28px;
+  margin-top: 30px;
+}
+
+.sys-figure dt {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.sys-figure dd {
+  margin-top: 2px;
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--ink);
   white-space: nowrap;
 }
 
-.sys-table th:first-child,
-.sys-table td:first-child {
-  text-align: left;
-  padding-left: 0;
+.sys-figure small {
+  margin-left: 4px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+
+.sys-scene-note {
+  max-width: 64ch;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-4);
+}
+
+@media (min-width: 1024px) {
+  /* сцена и текст в одной ячейке: звезда справа, имя и рассказ слева */
+  .sys-stage > * {
+    grid-area: 1 / 1;
+  }
+
+  .sys-stage__text {
+    position: relative;
+    align-self: center;
+    max-width: 37rem;
+    padding: 40px 0;
+  }
+
+  .sys-scene-note {
+    margin-left: auto;
+    text-align: right;
+  }
+}
+
+.sys-section {
+  margin-top: 64px;
+}
+
+.sys-h2 {
+  margin-bottom: 20px;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.sys-h2__count {
+  margin-left: 8px;
+  font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+
+.sys-planets {
+  border-top: 1px solid var(--rule);
+}
+
+.sys-planet {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto 56px;
+  align-items: center;
+  gap: 24px;
+  padding: 16px 12px;
+  border-bottom: 1px solid var(--rule);
+  transition: background-color 0.16s ease-out;
+}
+
+.sys-planet:hover {
+  background: var(--panel);
+}
+
+.sys-planet:active {
+  background: var(--panel-2);
+}
+
+.sys-planet__visual {
+  display: flex;
+  justify-content: center;
+}
+
+.sys-planet__id {
+  min-width: 0;
+}
+
+.sys-planet__name {
+  display: block;
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--beam);
+}
+
+.sys-planet:hover .sys-planet__name {
+  color: var(--beam-hi);
+}
+
+.sys-planet__meta {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+.sys-planet__zone {
+  margin-left: 10px;
+  color: var(--data-habitable);
+}
+
+.sys-planet__specs {
+  display: grid;
+  grid-template-columns: repeat(5, auto);
+  gap: 0 28px;
+}
+
+.sys-planet .sys-figure dd {
+  font-size: 16px;
+}
+
+.sys-planet__score {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  font-size: 15px;
+  color: var(--ink-2);
+}
+
+@media (max-width: 900px) {
+  .sys-planet {
+    grid-template-columns: 52px minmax(0, 1fr) auto;
+    gap: 14px 16px;
+  }
+
+  .sys-planet__score {
+    grid-row: 1;
+    grid-column: 3;
+  }
+
+  .sys-planet__specs {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+    gap: 12px 16px;
+  }
+}
+
+.sys-footnote {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 22px;
+  margin-top: 64px;
+  padding-top: 20px;
+  border-top: 1px solid var(--rule-soft);
+  font-size: 13px;
+  color: var(--ink-4);
+}
+
+.sys-status-hint {
+  margin-top: 14px;
+  max-width: 32rem;
+  font-size: 15px;
+  color: var(--ink-3);
+}
+
+/* Экран поиска: искатель телескопа и пустые орбиты на месте будущей системы */
+.sys-search circle {
+  fill: none;
+  stroke: var(--rule);
+}
+
+.sys-search__rings circle {
+  stroke: rgba(148, 163, 253, 0.3);
+  stroke-dasharray: 3 6;
+}
+
+.sys-search__reticle circle,
+.sys-search__reticle line {
+  stroke: var(--ink-3);
+}
+
+.sys-search__core {
+  fill: var(--ink-3) !important;
+  stroke: none !important;
+}
+
+.sys-search__track {
+  stroke: transparent !important;
+}
+
+.sys-search__planet {
+  fill: var(--data-indigo) !important;
+  stroke: none !important;
+  opacity: 0.8;
+}
+
+.sys-search__rings,
+.sys-search__orbit {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.sys-search:not(.is-searching) .sys-search__orbit {
+  display: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .is-searching .sys-search__rings {
+    animation: sys-turn 60s linear infinite;
+  }
+
+  .is-searching .sys-search__orbit {
+    animation: sys-turn 7s linear infinite;
+  }
+
+  .is-searching .sys-search__core {
+    animation: sys-blink 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes sys-turn {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes sys-blink {
+  50% { opacity: 0.25; }
 }

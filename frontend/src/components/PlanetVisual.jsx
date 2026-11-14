@@ -23,7 +23,12 @@ const paletteFor = (radius, teq, gaseous) => {
   return { type: "desert", base: "#a87e58" };
 };
 
-const PlanetVisual = ({ radius, teq, mass, density, size = 200, className = "" }) => {
+/**
+ * fit — весь рисунок, включая кольца гиганта, помещается в size × size.
+ * Без fit кольца шире диска в 1,9 раза и выходят за его границы (так задумано
+ * для больших портретов, но ломает узкие колонки и карточки).
+ */
+const PlanetVisual = ({ radius, teq, mass, density, size = 200, className = "", fit = false }) => {
   const r = radius ?? 1.5;
   const d = density ?? (mass != null && radius != null && radius > 0
     ? (5.513 * mass) / radius ** 3
@@ -32,6 +37,7 @@ const PlanetVisual = ({ radius, teq, mass, density, size = 200, className = "" }
   const p = paletteFor(radius, teq, gaseous);
   const hasAtmo = r < 2.7 && teq != null && teq > 150 && teq < 420;
   const showRings = (radius ?? 0) >= 6;
+  const disk = fit && showRings ? Math.round(size / 1.95) : size;
 
   let surface = null;
   let bg = "#334155";
@@ -93,21 +99,21 @@ const PlanetVisual = ({ radius, teq, mass, density, size = 200, className = "" }
     );
   }
 
-  return (
+  const planet = (
     <div
-      className={`relative ${className}`}
-      style={{ width: size, height: size }}
+      className={`relative ${fit ? "" : className}`}
+      style={{ width: disk, height: disk }}
       aria-label="Иллюстрация планеты"
     >
       {showRings && (
         <div
           className="absolute left-1/2 top-1/2 pointer-events-none"
           style={{
-            width: size * 1.9,
-            height: size * 0.62,
+            width: disk * 1.9,
+            height: disk * 0.62,
             transform: "translate(-50%, -50%) rotate(-16deg)",
             borderRadius: "50%",
-            border: `${Math.max(3, size * 0.03)}px solid rgba(214, 199, 170, 0.35)`,
+            border: `${Math.max(3, disk * 0.03)}px solid rgba(214, 199, 170, 0.35)`,
             boxShadow: "0 0 18px rgba(214,199,170,0.18)",
             zIndex: 0,
           }}
@@ -118,7 +124,7 @@ const PlanetVisual = ({ radius, teq, mass, density, size = 200, className = "" }
         style={{
           background: bg,
           boxShadow: hasAtmo
-            ? `inset -${size * 0.14}px -${size * 0.11}px ${size * 0.3}px rgba(0,0,6,0.85), inset ${size * 0.05}px ${size * 0.04}px ${size * 0.15}px rgba(255,255,255,0.18), 0 0 ${size * 0.12}px rgba(120,190,255,0.45)`
+            ? `inset -${disk * 0.14}px -${disk * 0.11}px ${disk * 0.3}px rgba(0,0,6,0.85), inset ${disk * 0.05}px ${disk * 0.04}px ${disk * 0.15}px rgba(255,255,255,0.18), 0 0 ${disk * 0.12}px rgba(120,190,255,0.45)`
             : undefined,
           zIndex: 1,
         }}
@@ -129,11 +135,11 @@ const PlanetVisual = ({ radius, teq, mass, density, size = 200, className = "" }
         <div
           className="absolute left-1/2 top-1/2 pointer-events-none"
           style={{
-            width: size * 1.9,
-            height: size * 0.62,
+            width: disk * 1.9,
+            height: disk * 0.62,
             transform: "translate(-50%, -50%) rotate(-16deg)",
             borderRadius: "50%",
-            borderBottom: `${Math.max(3, size * 0.03)}px solid rgba(224, 210, 182, 0.55)`,
+            borderBottom: `${Math.max(3, disk * 0.03)}px solid rgba(224, 210, 182, 0.55)`,
             borderLeft: "none",
             borderTop: "none",
             borderRight: "none",
@@ -141,6 +147,12 @@ const PlanetVisual = ({ radius, teq, mass, density, size = 200, className = "" }
           }}
         />
       )}
+    </div>
+  );
+  if (!fit) return planet;
+  return (
+    <div className={`relative flex items-center justify-center ${className}`} style={{ width: size, height: size }}>
+      {planet}
     </div>
   );
 };

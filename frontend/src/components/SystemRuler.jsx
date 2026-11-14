@@ -10,7 +10,7 @@ import {
 const PAD_X = 14;
 const LANE_H = 15;
 const LABEL_TOP = 6;
-const LIMB_R = 320;
+const SOLAR_PRIORITY = ["Earth", "Jupiter", "Neptune", "Mercury", "Saturn", "Mars"];
 const HZ_GREEN = "34,197,94";
 
 /**
@@ -49,13 +49,17 @@ const SystemRuler = ({ star, planets, hz }) => {
   const height = solarY + 24;
   const ticks = decadeTicks(domain);
   // Подпись планеты Солнечной системы — только если не налезает на предыдущую
-  let lastLabelX = -Infinity;
-  const solarLabels = SOLAR_REFERENCE.filter((s) => s.a >= domain[0] && s.a <= domain[1]).map((s) => {
-    const sx = x(s.a);
-    const showLabel = sx - lastLabelX >= 56;
-    if (showLabel) lastLabelX = sx;
-    const anchor = sx > width - PAD_X - 30 ? "end" : sx < PAD_X + 30 ? "start" : "middle";
-    return { ...s, x: sx, showLabel, anchor };
+  // Земля подписана всегда (о ней весь раздел), остальные — если есть место
+  const shown = [];
+  const solarLabels = SOLAR_REFERENCE.filter((s) => s.a >= domain[0] && s.a <= domain[1])
+    .map((s) => ({ ...s, x: x(s.a) }));
+  [...solarLabels].sort((a, b) => SOLAR_PRIORITY.indexOf(a.en) - SOLAR_PRIORITY.indexOf(b.en))
+    .forEach((s) => {
+      if (shown.every((o) => Math.abs(o.x - s.x) >= 58)) shown.push(s);
+    });
+  solarLabels.forEach((s) => {
+    s.showLabel = shown.includes(s);
+    s.anchor = s.x > width - PAD_X - 30 ? "end" : s.x < PAD_X + 30 ? "start" : "middle";
   });
   const starVisible = starRadiusAu > domain[0];
   const starX = starVisible ? x(starRadiusAu) : 4;
@@ -73,14 +77,16 @@ const SystemRuler = ({ star, planets, hz }) => {
             <clipPath id={`${gradId}-band`}>
               <rect x={0} y={LABEL_TOP} width={width} height={axisY - LABEL_TOP} />
             </clipPath>
-            <radialGradient id={`${gradId}-limb`}>
-              <stop offset="0.9" stopColor={sColor} />
-              <stop offset="1" stopColor={sColor} stopOpacity="0.55" />
-            </radialGradient>
+            <linearGradient id={`${gradId}-limb`} x1="0" x2="1" y1="0" y2="0">
+              <stop offset="0" stopColor={sColor} stopOpacity="0.04" />
+              <stop offset="1" stopColor={sColor} stopOpacity="0.32" />
+            </linearGradient>
           </defs>
+          {/* Звезда: тонкая подсветка «внутри» и яркая линия её поверхности на реальном радиусе */}
           <g clipPath={`url(#${gradId}-band)`}>
-            <circle cx={starX - LIMB_R + 6} cy={cy} r={LIMB_R + 6} fill={sColor} opacity={0.14} />
-            <circle cx={starX - LIMB_R} cy={cy} r={LIMB_R} fill={`url(#${gradId}-limb)`} />
+            <rect x={0} y={LABEL_TOP} width={starX} height={axisY - LABEL_TOP} fill={`url(#${gradId}-limb)`} />
+            <line x1={starX} x2={starX} y1={LABEL_TOP} y2={axisY} stroke={sColor} strokeWidth={6} strokeOpacity={0.25} />
+            <line x1={starX} x2={starX} y1={LABEL_TOP} y2={axisY} stroke={sColor} strokeWidth={2} />
           </g>
 
           {hz && (
@@ -140,7 +146,7 @@ const SystemRuler = ({ star, planets, hz }) => {
 
           {/* Солнечная система для сравнения */}
           <text x={width - PAD_X} y={solarY - 10} textAnchor="end" className="sr-label" fill="var(--ink-4)">
-            {t("Солнечная система для сравнения", "Solar System for comparison")}
+            {t("для сравнения: Солнечная система", "for comparison: the Solar System")}
           </text>
           <line x1={PAD_X} x2={width - PAD_X} y1={solarY} y2={solarY}
                 stroke="var(--rule-soft)" strokeDasharray="2 4" />
@@ -156,27 +162,16 @@ const SystemRuler = ({ star, planets, hz }) => {
           ))}
         </svg>
       )}
-      <div className="flex flex-wrap gap-x-6 gap-y-2 mt-3 text-[13px]" style={{ color: "var(--ink-2)" }}>
-        {hz && (
-          <span className="inline-flex items-center gap-2">
-            <span className="inline-block w-3 h-3" style={{ background: `rgba(${HZ_GREEN},0.3)` }} />
-            {t("зона обитаемости, плотнее — консервативная", "habitable zone, denser part is conservative")}
-          </span>
-        )}
-        <span className="inline-flex items-center gap-2">
-          <span className="dot" style={{ background: "var(--data-indigo)", width: 9, height: 9 }} />
-          {t("планета, размер по радиусу; нажмите, чтобы открыть", "planet, sized by radius; select to open")}
-        </span>
-      </div>
-      <figcaption className="label-mono mt-3">
-        {t("Логарифмическая шкала. Отрезок — путь от ближней до дальней точки орбиты.",
-          "Logarithmic scale. A bar spans each orbit from nearest to farthest point.")}
+      <figcaption className="sr-caption">
+        {t("Шкала логарифмическая: каждое деление в 10 раз дальше предыдущего. Кружок — планета по размеру, отрезок — от ближней до дальней точки орбиты",
+          "Logarithmic scale: each mark is ten times farther than the last. Circles are planets by size; a bar spans the orbit from nearest to farthest point")}
+        {hz ? t(", зелёная полоса — зона обитаемости.", "; the green band is the habitable zone.") : "."}
         {starVisible &&
-          ` ${t("Край звезды слева в масштабе, радиус", "The star's edge on the left is to scale, radius")} ${fmtSig(starRadiusAu, 2)} ${t("а.е.", "AU")}`}
+          ` ${t("Край звезды слева — в том же масштабе.", "The star's edge on the left is to the same scale.")}`}
         {!starVisible && starRadiusAu &&
-          ` ${t("Звезда меньше начала шкалы, радиус", "The star is smaller than the start of the scale, radius")} ${fmtSig(starRadiusAu, 2)} ${t("а.е.", "AU")}`}
+          ` ${t("Сама звезда меньше начала шкалы.", "The star itself is smaller than the start of the scale.")}`}
         {planets.some((p) => p.a_estimated) &&
-          ` ${t("≈ — расстояние по третьему закону Кеплера.", "≈ distance from Kepler's third law.")}`}
+          ` ${t("Знак ≈ — расстояние посчитано по третьему закону Кеплера.", "≈ marks a distance computed from Kepler's third law.")}`}
       </figcaption>
     </figure>
   );
