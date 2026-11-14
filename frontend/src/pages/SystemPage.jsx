@@ -54,8 +54,8 @@ const earthNote = (luminosity, t) => {
   const where = au >= 10 ? fmt(au, 1) : fmtSig(au, 2);
   if (luminosity > 1.5) {
     return t(
-      `Эта звезда ярче Солнца в ${fmt(luminosity, luminosity < 10 ? 1 : 0)} раз, поэтому столько же света, сколько Земля получает от Солнца, здесь будет только на ${where} а.е. — это «место Земли». Серая Земля в ряду Солнечной системы стоит там, где она на самом деле, у Солнца.`,
-      `This star is ${fmt(luminosity, luminosity < 10 ? 1 : 0)} times brighter than the Sun, so the light Earth gets from the Sun is found only at ${where} AU — that is "Earth's place". The grey Earth in the Solar System row sits where it really is, at the Sun.`);
+      `Эта звезда ярче Солнца в ${fmt(luminosity, luminosity < 10 ? 1 : 0)} раз, поэтому столько же света, сколько Земля получает от Солнца, здесь будет только на ${where} а.е., а не на 1 а.е., как у нас. Это и есть «место Земли».`,
+      `This star is ${fmt(luminosity, luminosity < 10 ? 1 : 0)} times brighter than the Sun, so the light Earth gets from the Sun is found only at ${where} AU, not at 1 AU as at home. That is "Earth's place".`);
   }
   if (luminosity < 0.67) {
     return t(

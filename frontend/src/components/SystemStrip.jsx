@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { fmt, fmtSig, starColor } from "@/lib/format";
 import { useT } from "@/lib/i18n";
 import {
-  AU_PER_SOLAR_RADIUS, SOLAR_REFERENCE, axisDomain, decadeTicks, earthEquivalentAu,
+  AU_PER_SOLAR_RADIUS, axisDomain, decadeTicks, earthEquivalentAu,
   inHabitableZone, labelLanes, logX, planetDotRadius, planetLetter, stackLabels,
 } from "@/lib/systemScale";
 
@@ -12,12 +12,6 @@ const CHAR_PX = 6.6;         // ширина знака подписи (Plex Mon
 const PAD = 14;
 
 const clampEcc = (e) => (Number.isFinite(e) ? Math.min(Math.max(e, 0), 0.95) : 0);
-const textSpan = (x, text, anchor) => {
-  const w = text.length * CHAR_PX;
-  if (anchor === "end") return [x - w, x];
-  if (anchor === "middle") return [x - w / 2, x + w / 2];
-  return [x, x + w];
-};
 
 /** Орбита и год планеты одной строкой: единицы сами объясняют числа. */
 const planetData = (p, t) => `${p.a_estimated ? "≈" : ""}${fmtSig(p.a_au, 3)} ${t("а.е.", "AU")}`
@@ -30,8 +24,7 @@ const useSystemGeometry = (star, planets, hz) => {
   const starAu = star.radius ? star.radius * AU_PER_SOLAR_RADIUS : null;
   const placed = planets.filter((p) => p.a_au > 0).sort((a, b) => a.a_au - b.a_au);
   const domain = axisDomain({ planets: placed, hz, extra: [earthAu, starAu] });
-  const solar = SOLAR_REFERENCE.filter((s) => s.a >= domain[0] && s.a <= domain[1]);
-  return { earthAu, starAu, placed, domain, solar, ticks: decadeTicks(domain), color: starColor(star.temperature) };
+  return { earthAu, starAu, placed, domain, ticks: decadeTicks(domain), color: starColor(star.temperature) };
 };
 
 /** Тот же цвет темнее: потемнение диска к краю, как у настоящей звезды. */
@@ -57,18 +50,6 @@ const StarDisc = ({ id, cx, cy, r, color }) => (
   </g>
 );
 
-/** Наконечник стрелки «Земля у Солнца → место Земли». */
-const Arrow = ({ id }) => (
-  <marker id={`${id}-arrow`} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-    <path d="M0,0 L8,4 L0,8 z" className="ss-arrow-head" />
-  </marker>
-);
-
-/** Во сколько раз дальше (или ближе) Земле пришлось бы встать у этой звезды. */
-const earthShift = (earthAu, t) => (earthAu >= 1
-  ? t(`в ${fmt(earthAu, 1)} раза дальше`, `${fmt(earthAu, 1)}× farther`)
-  : t(`в ${fmt(1 / earthAu, 0)} раз ближе`, `${fmt(1 / earthAu, 0)}× closer`));
-
 /** Планета на оси: кликается, подсвечивается вместе со строкой списка. */
 const PlanetMark = ({ p, x, y, r, active, onActive, onOpen, label, children }) => {
   const t = useT();
@@ -88,12 +69,11 @@ const PlanetMark = ({ p, x, y, r, active, onActive, onOpen, label, children }) =
 
 const Horizontal = ({ geo, star, hz, width, active, onActive, open, id }) => {
   const t = useT();
-  const { earthAu, starAu, placed, domain, solar, ticks, color } = geo;
+  const { earthAu, starAu, placed, domain, ticks, color } = geo;
   const top = 48;
   const axisY = 194;
   const cy = 126;
-  const solarY = axisY + 54;
-  const height = solar.length ? solarY + 26 : axisY + 34;
+  const height = axisY + 34;
   const x = (au) => PAD + logX(domain, width - PAD * 2)(au);
   const anchorAt = (xc) => (xc > width - 60 ? "end" : xc < 60 ? "start" : "middle");
 
@@ -110,25 +90,12 @@ const Horizontal = ({ geo, star, hz, width, active, onActive, open, id }) => {
   const starLabel = `${t("поверхность звезды", "star's surface")} · ${fmtSig(starAu, 2)} ${t("а.е.", "AU")}`;
   const starLabelInside = starX != null && starX - PAD > starLabel.length * CHAR_PX + 24;
 
-  // Стрелка от настоящей Земли (1 а.е. у Солнца) к месту Земли у этой звезды
-  const earthGhost = earthAu != null && solar.some((s) => s.en === "Earth") && Math.abs(x(earthAu) - x(1)) > 30;
-
-  const taken = [];
-  const solarMarks = solar.map((s) => ({ ...s, x: x(s.a), label: t(s.ru, s.en) }));
-  solarMarks.forEach((s) => {
-    s.anchor = anchorAt(s.x);
-    const [a, b] = textSpan(s.x, s.label, s.anchor);
-    s.show = taken.every(([c, d]) => b + 10 < c || a - 10 > d);
-    if (s.show) taken.push([a, b]);
-  });
-
   return (
     <svg width={width} height={height} role="group" className="ss"
          aria-label={t("Система в масштабе: расстояния от звезды в астрономических единицах, логарифмическая шкала",
            "The system to scale: distances from the star in astronomical units, logarithmic scale")}>
       <defs>
         <clipPath id={`${id}-band`}><rect x={0} y={0} width={width} height={axisY} /></clipPath>
-        <Arrow id={id} />
       </defs>
 
       {hz && (
@@ -160,7 +127,7 @@ const Horizontal = ({ geo, star, hz, width, active, onActive, open, id }) => {
 
       {earthAu != null && (
         <g className="ss-earth">
-          <line x1={x(earthAu)} x2={x(earthAu)} y1={top - 6} y2={earthGhost ? solarY - 6 : axisY} />
+          <line x1={x(earthAu)} x2={x(earthAu)} y1={top - 6} y2={axisY} />
           <text x={x(earthAu)} y={top - 24} textAnchor={anchorAt(x(earthAu))}>{t("место Земли", "Earth's place")}</text>
           <text className="ss-earth-sub" x={x(earthAu)} y={top - 10} textAnchor={anchorAt(x(earthAu))}>
             {t("столько же света, как у Земли", "as much light as Earth gets")}
@@ -199,35 +166,13 @@ const Horizontal = ({ geo, star, hz, width, active, onActive, open, id }) => {
         );
       })}
 
-      {earthGhost && (
-        <g className="ss-shift">
-          <path d={`M${x(1)},${solarY - 5} Q${(x(1) + x(earthAu)) / 2},${solarY - 24} ${x(earthAu) + (earthAu >= 1 ? -3 : 3)},${solarY - 7}`}
-                markerEnd={`url(#${id}-arrow)`} />
-          {Math.abs(x(earthAu) - x(1)) > earthShift(earthAu, t).length * CHAR_PX + 24 && (
-            <text x={(x(1) + x(earthAu)) / 2} y={solarY - 22} textAnchor="middle">{earthShift(earthAu, t)}</text>
-          )}
-        </g>
-      )}
-
-      {solar.length > 0 && (
-        <g className="ss-solar">
-          <text className="ss-solar-title" x={PAD} y={solarY - 12}>{t("Солнечная система для сравнения", "Solar System for comparison")}</text>
-          <line x1={PAD} x2={width - PAD} y1={solarY} y2={solarY} />
-          {solarMarks.map((s) => (
-            <g key={s.en}>
-              <circle cx={s.x} cy={solarY} r={2.5} />
-              {s.show && <text x={s.x} y={solarY + 17} textAnchor={s.anchor}>{s.label}</text>}
-            </g>
-          ))}
-        </g>
-      )}
     </svg>
   );
 };
 
 const Vertical = ({ geo, star, hz, width, active, onActive, open, id }) => {
   const t = useT();
-  const { earthAu, starAu, placed, domain, solar, ticks, color } = geo;
+  const { earthAu, starAu, placed, domain, ticks, color } = geo;
   const top = 18;
   const axisX = 62;
   const decades = Math.log10(domain[1] / domain[0]);
@@ -247,8 +192,8 @@ const Vertical = ({ geo, star, hz, width, active, onActive, open, id }) => {
   const starLabel = `${t("поверхность звезды", "star's surface")} · ${fmtSig(starAu, 2)} ${t("а.е.", "AU")}`;
   const starLabelInside = starY != null && starY - top > 30;
 
-  // Подписи планет идут от оси вправо; у правого края — место Земли, зона и Солнечная
-  // система. Правая подпись ищет свободную строку; не нашла — у соседней планеты прячутся цифры.
+  // Подписи планет идут от оси вправо; у правого края — место Земли и зона.
+  // Правая подпись ищет свободную строку; не нашла — у соседней планеты прячутся цифры.
   const planetText = (p) => `${planetLetter(p.name, star.name)}  ${planetData(p, t)}`;
   const planetBoxes = placed.map((p, i) => ({ y: labelYs[i], x2: labelX + planetText(p).length * CHAR_PX, short: false }));
   const clashes = (ly, x1) => planetBoxes.filter((b) => Math.abs(b.y - ly) < 15 && b.x2 + 10 > x1);
@@ -272,14 +217,6 @@ const Vertical = ({ geo, star, hz, width, active, onActive, open, id }) => {
   if (hz && hzBottom - hzTop > 24) {
     place("hz", t("зона обитаемости", "habitable zone"), [hzTop + 16, hzBottom - 6], false);
   }
-  const solarMarks = solar.map((s) => {
-    const sy = y(s.a);
-    const label = t(s.ru, s.en);
-    const x1 = width - 14 - label.length * CHAR_PX;
-    const show = !clashes(sy + 4, x1).length && right.every((r) => Math.abs(r.y - (sy + 4)) >= 18);
-    if (show) right.push({ key: s.en, y: sy + 4 });
-    return { ...s, y: sy, show, label };
-  });
   const earthLabel = right.find((r) => r.key === "earth");
   const hzLabel = right.find((r) => r.key === "hz");
 
@@ -289,7 +226,6 @@ const Vertical = ({ geo, star, hz, width, active, onActive, open, id }) => {
            "The system to scale: distance from the star runs down a logarithmic scale")}>
       <defs>
         <clipPath id={`${id}-band`}><rect x={0} y={0} width={width} height={bottom} /></clipPath>
-        <Arrow id={id} />
       </defs>
 
       {hz && (
@@ -330,20 +266,6 @@ const Vertical = ({ geo, star, hz, width, active, onActive, open, id }) => {
           <text x={width - 8} y={earthLabel.y} textAnchor="end">{earthLabel.text}</text>
         </g>
       )}
-
-      {earthY != null && solar.some((s) => s.en === "Earth") && Math.abs(earthY - y(1)) > 30 && (
-        <g className="ss-shift">
-          <path d={`M${width - 3},${y(1) + (earthY > y(1) ? 6 : -6)} L${width - 3},${earthY + (earthY > y(1) ? -3 : 3)}`}
-                markerEnd={`url(#${id}-arrow)`} />
-        </g>
-      )}
-
-      {solarMarks.map((s) => (
-        <g key={s.en} className="ss-solar">
-          <circle cx={width - 6} cy={s.y} r={2.5} />
-          {s.show && <text x={width - 14} y={s.y + 4} textAnchor="end">{s.label}</text>}
-        </g>
-      ))}
 
       {placed.map((p, i) => {
         const r = planetDotRadius(p.radius_earth);
