@@ -708,20 +708,24 @@ def extract_discovery(row: dict) -> dict:
     }
 
 
-# --- Зона обитаемости (Kopparapu et al. 2013, приближение) ---
+# --- Зона обитаемости (Kopparapu et al. 2013, ApJ 765, 131; коэффициенты по исправлению
+# ApJ 770, 82 — таблица 3). Формула верна для Teff 2600–7200 K: за краями Teff прижимаем
+# к границе и говорим об этом в ответе.
 _KOPPARAPU = {
     # Seff_sun, a, b, c, d
-    "recent_venus":      (1.7763, 1.4335e-4, 3.3954e-9, -7.6364e-12, -1.1950e-15),
-    "runaway_greenhouse": (1.0385, 1.2456e-4, 1.4612e-8, -7.6345e-12, -1.7511e-15),
-    "max_greenhouse":    (0.3507, 5.9578e-5, 1.6707e-9, -3.0058e-12, -5.1925e-16),
-    "early_mars":        (0.3207, 5.4471e-5, 1.5275e-9, -2.1709e-12, -3.8282e-16),
+    "recent_venus":      (1.7753, 1.4316e-4, 2.9875e-9, -7.5702e-12, -1.1635e-15),
+    "runaway_greenhouse": (1.0512, 1.3242e-4, 1.5418e-8, -7.9895e-12, -1.8328e-15),
+    "max_greenhouse":    (0.3438, 5.8942e-5, 1.6558e-9, -3.0045e-12, -5.2983e-16),
+    "early_mars":        (0.3179, 5.4513e-5, 1.5313e-9, -2.7786e-12, -4.8997e-16),
 }
+HZ_TEFF_RANGE = (2600.0, 7200.0)
 
 
 def kopparapu_hz(st_teff: Optional[float], luminosity: Optional[float]) -> Optional[dict]:
     if not st_teff or not luminosity or luminosity <= 0:
         return None
-    t = max(2600.0, min(7200.0, st_teff)) - 5780.0
+    teff_used = max(HZ_TEFF_RANGE[0], min(HZ_TEFF_RANGE[1], st_teff))
+    t = teff_used - 5780.0
     bounds = {}
     for key, (s0, a, b, c, d) in _KOPPARAPU.items():
         seff = s0 + a * t + b * t**2 + c * t**3 + d * t**4
@@ -733,6 +737,9 @@ def kopparapu_hz(st_teff: Optional[float], luminosity: Optional[float]) -> Optio
         "inner_conservative": round(bounds["runaway_greenhouse"], 4),
         "outer_conservative": round(bounds["max_greenhouse"], 4),
         "outer_optimistic": round(bounds["early_mars"], 4),
+        # Teff вне диапазона формулы: границы посчитаны для ближайшего края
+        "teff_clamped": teff_used != st_teff,
+        "teff_used": teff_used,
     }
 
 

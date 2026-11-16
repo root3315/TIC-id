@@ -305,6 +305,9 @@ const SystemPage = () => {
                 ? t(`Зона обитаемости лежит дальше, в ${fmtSig(hz.inner_conservative, 2)}–${fmtSig(hz.outer_conservative, 2)} а.е.`,
                   `The habitable zone lies farther out, at ${fmtSig(hz.inner_conservative, 2)}–${fmtSig(hz.outer_conservative, 2)} AU.`)
                 : t("Зелёные линии — границы зоны обитаемости.", "Green lines bound the habitable zone."))}
+              {hz?.teff_clamped &&
+                ` ${t(`Формула зоны обитаемости верна для звёзд 2600–7200 K, поэтому зона посчитана для ${fmt(hz.teff_used, 0)} K.`,
+                  `The habitable-zone formula holds for 2600–7200 K stars, so the zone is computed for ${fmt(hz.teff_used, 0)} K.`)}`}
               {planets.some((p) => p.a_estimated) &&
                 ` ${t("Знак ≈ — расстояние по третьему закону Кеплера.", "≈ marks a distance from Kepler's third law.")}`}
             </div>

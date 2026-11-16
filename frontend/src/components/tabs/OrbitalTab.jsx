@@ -147,6 +147,9 @@ const OrbitalTab = ({ data }) => {
             <p className="text-xs text-slate-500 mt-1.5 tabular">
               {t("Зона обитаемости (Коппарапу и др., 2013): консервативная", "Habitable zone (Kopparapu et al., 2013): conservative")} {fmt(hz.inner_conservative, 3)}–{fmt(hz.outer_conservative, 3)} {t("а.е.,", "AU,")}
               {" "}{t("оптимистичная", "optimistic")} {fmt(hz.inner_optimistic, 3)}–{fmt(hz.outer_optimistic, 3)} {t("а.е.", "AU")}
+              {hz.teff_clamped && ` ${t(
+                `Формула верна для звёзд 2600–7200 K, поэтому границы посчитаны для ${fmt(hz.teff_used, 0)} K, а не для ${fmt(star.temperature, 0)} K.`,
+                `The formula holds for 2600–7200 K stars, so the bounds are computed for ${fmt(hz.teff_used, 0)} K, not ${fmt(star.temperature, 0)} K.`)}`}
             </p>
           )}
         </motion.div>

@@ -51,6 +51,19 @@ def test_kopparapu_sun():
     hz = server.kopparapu_hz(5772.0, 1.0)
     assert 0.9 < hz["inner_conservative"] < 1.05
     assert 1.5 < hz["outer_conservative"] < 1.8
+    assert hz["teff_clamped"] is False
+
+
+def test_kopparapu_erratum_coefficients():
+    # Kopparapu et al. 2013, исправление (ApJ 770, 82): при Teff = 5780 K Seff = Seff_sun
+    hz = server.kopparapu_hz(5780.0, 1.0)
+    assert hz["inner_conservative"] == round(1 / 1.0512 ** 0.5, 4)
+    assert hz["outer_optimistic"] == round(1 / 0.3179 ** 0.5, 4)
+
+
+def test_kopparapu_flags_clamped_teff():
+    hz = server.kopparapu_hz(2300.0, 0.001)
+    assert hz["teff_clamped"] is True and hz["teff_used"] == 2600.0
 
 
 def test_esi_earth_is_one():
