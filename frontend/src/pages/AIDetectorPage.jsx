@@ -369,6 +369,7 @@ const AIDetectorPage = () => {
                       </span>
                       <span className="text-xs text-slate-500">
                         {t("глубина", "depth")} ≈ {fmt(lcData.bls.depth_ppm, 0)} ppm · {t("длительность", "duration")} ≈ {fmt(lcData.bls.duration_h, 1)} {t("ч", "h")}
+                        {lcData.bls.max_period && ` · ${t("искали до", "searched up to")} ${fmt(lcData.bls.max_period, 0)} ${t("сут", "d")}`}
                       </span>
                     </div>
                     {lcData.bls.peaks?.length > 1 && (

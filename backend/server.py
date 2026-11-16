@@ -2609,8 +2609,28 @@ async def ml_toi(disp: str = Query("PC,APC"), limit: int = Query(60, le=200),
 
 # ---------- Анализ реальных кривых блеска ----------
 
+BLS_SHORT_MAX = 30.0          # до 30 сут — плотная сетка и короткие транзиты
+BLS_LONG_MAX_STEPS = 6000     # длинные периоды: сетка реже, чтобы ТВ-бокс считал минуты, а не часы
+BLS_LONG_MIN_DUR = 0.1        # сут; на длинных периодах транзиты длиннее 2,4 ч
+BLS_MAX_DUR = 16.0 / 24       # сут
+
+
+def _bls_pass(t, f, periods, durations, oversample=10):
+    pg = lc_pipeline.bls_power(t, f, periods, durations, oversample)
+    return {"periods": np.asarray(periods, dtype=float), "power": np.asarray(pg.power, dtype=float),
+            "depth": np.asarray(pg.depth, dtype=float), "duration": np.asarray(pg.duration, dtype=float),
+            "t0": np.asarray(pg.transit_time, dtype=float), "durations": durations,
+            "oversample": oversample}
+
+
 def run_bls(time_v: np.ndarray, flux_v: np.ndarray) -> Optional[Dict[str, Any]]:
-    """Поиск периода транзита алгоритмом Box Least Squares (порт astropy на numpy)."""
+    """Поиск периода транзита алгоритмом Box Least Squares (порт astropy на numpy).
+
+    Периоды — до половины длины ряда (нужно хотя бы два транзита). До 30 сут — плотная
+    логарифмическая сетка и длительности 0,5–6 ч; дальше — сетка реже (с ограничением
+    по числу шагов) и длительности растут с периодом, до ~0,1·P^(1/3) сут (не больше 16 ч).
+    Значимость — стандартный SDE: (пик − среднее) / σ по всей периодограмме.
+    """
     try:
         # биннинг: BLS по ~10 тыс. точек считается за секунды
         span = float(time_v[-1] - time_v[0])
@@ -2619,62 +2639,68 @@ def run_bls(time_v: np.ndarray, flux_v: np.ndarray) -> Optional[Dict[str, Any]]:
         bin_days = (30.0 if span > 60 else 10.0) / 1440.0
         t, f = lc_pipeline.bin_time_series(time_v, flux_v, bin_days)
 
-        max_period = min(span / 2.5, 30.0)
-        min_period = 0.3
+        min_period, max_period = 0.3, span / 2.0
         if max_period <= min_period * 1.2:
             return None
         durations = np.array([0.02, 0.05, 0.09, 0.15, 0.25])
         durations = durations[durations < min_period * 0.95]
-        # проход 1: логарифмическая сетка по всему диапазону
-        periods = np.geomspace(min_period, max_period, 12000)
-        pg = lc_pipeline.bls_power(t, f, periods, durations)
-        power = np.asarray(pg.power, dtype=float)
+        passes = [_bls_pass(t, f, np.geomspace(min_period, min(max_period, BLS_SHORT_MAX), 12000),
+                            durations)]
+        if max_period > BLS_SHORT_MAX * 1.05:
+            d_max = min(0.1 * max_period ** (1 / 3), BLS_MAX_DUR)
+            long_durs = np.geomspace(BLS_LONG_MIN_DUR, max(d_max, BLS_LONG_MIN_DUR * 1.5), 5)
+            # шаг: за всю длину ряда транзит сдвигается не больше чем на кратчайшую длительность
+            n_long = int(np.log(max_period / BLS_SHORT_MAX) * span / BLS_LONG_MIN_DUR)
+            n_long = int(np.clip(n_long, 300, BLS_LONG_MAX_STEPS))
+            passes.append(_bls_pass(t, f, np.geomspace(BLS_SHORT_MAX, max_period, n_long),
+                                    long_durs, oversample=5))
+
+        periods = np.concatenate([q["periods"] for q in passes])
+        power = np.concatenate([q["power"] for q in passes])
+        pg_depth = np.concatenate([q["depth"] for q in passes])
+        pg_dur = np.concatenate([q["duration"] for q in passes])
+        pg_t0 = np.concatenate([q["t0"] for q in passes])
+        power = np.where(np.isfinite(power), power, np.nan)
         best = int(np.nanargmax(power))
-        # проход 2: уточнение узкой линейной сеткой вокруг пика
-        p_lo, p_hi = periods[best] * 0.99, periods[best] * 1.01
-        fine = np.linspace(p_lo, p_hi, 2000)
-        pg_fine = lc_pipeline.bls_power(t, f, fine, durations)
-        best_fine = int(np.nanargmax(pg_fine.power))
-        # подменяем найденный пик уточнённым значением
-        periods = np.asarray(periods, dtype=float)
-        periods[best] = float(fine[best_fine])
-        power[best] = float(pg_fine.power[best_fine])
-        pg_depth = np.asarray(pg.depth, dtype=float)
-        pg_dur = np.asarray(pg.duration, dtype=float)
-        pg_t0 = np.asarray(pg.transit_time, dtype=float)
-        pg_depth[best] = float(pg_fine.depth[best_fine])
-        pg_dur[best] = float(pg_fine.duration[best_fine])
-        pg_t0[best] = float(pg_fine.transit_time[best_fine])
-        med = float(np.nanmedian(power))
-        mad = float(np.nanmedian(np.abs(power - med))) * 1.4826 + 1e-12
-        sde = (float(power[best]) - med) / mad
+        src = passes[0] if best < len(passes[0]["periods"]) else passes[-1]
+
+        # уточнение узкой линейной сеткой вокруг пика — подменяем найденный пик
+        fine = _bls_pass(t, f, np.linspace(periods[best] * 0.99, periods[best] * 1.01, 2000),
+                         src["durations"], src["oversample"])
+        bf = int(np.nanargmax(fine["power"]))
+        periods[best] = fine["periods"][bf]
+        power[best] = fine["power"][bf]
+        pg_depth[best], pg_dur[best], pg_t0[best] = fine["depth"][bf], fine["duration"][bf], fine["t0"][bf]
+
+        mean, std = float(np.nanmean(power)), float(np.nanstd(power)) + 1e-12
+        z = (power - mean) / std        # периодограмма в единицах SDE
+        sde = float(z[best])
 
         # топ-3 независимых пика (не гармоники выбранного в пределах 3%)
         peaks = []
-        order = np.argsort(-power)
-        for i in order:
+        for i in np.argsort(-np.nan_to_num(power, nan=-np.inf)):
             p = float(periods[i])
             if any(abs(p - q["period"]) / q["period"] < 0.03
                    or abs(p / q["period"] - round(p / q["period"])) < 0.02
                    or abs(q["period"] / p - round(q["period"] / p)) < 0.02
                    for q in peaks):
                 continue
-            peaks.append({"period": round(p, 5),
-                          "sde": round((float(power[i]) - med) / mad, 1)})
+            peaks.append({"period": round(p, 5), "sde": round(float(z[i]), 1)})
             if len(peaks) >= 3:
                 break
 
+        order = np.argsort(periods)
         stride = max(1, len(periods) // 500)
-        keep = sorted(set(range(0, len(periods), stride)) | {best})  # пик не теряем
-        z = (power - med) / mad  # периодограмма в единицах значимости (σ)
+        keep = sorted(set(order[::stride].tolist()) | {best}, key=lambda i: periods[i])  # пик не теряем
         return {
             "best_period": round(float(periods[best]), 6),
             "t0": float(pg_t0[best]),
             "duration_h": round(float(pg_dur[best]) * 24, 2),
             "depth_ppm": round(float(pg_depth[best]) * 1e6, 1),
             "sde": round(sde, 1),
+            "max_period": round(max_period, 2),
             "peaks": peaks,
-            "periodogram": [{"P": round(float(periods[i]), 4), "power": round(float(z[i]), 2)}
+            "periodogram": [{"P": round(float(periods[i]), 4), "power": round(float(np.nan_to_num(z[i])), 2)}
                             for i in keep],
         }
     except Exception as e:  # noqa: BLE001
