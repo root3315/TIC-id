@@ -2924,48 +2924,98 @@ def analyze_lightcurve_sync(target: str, period: Optional[float]) -> Dict[str, A
     return out
 
 
-# v2: замеры на полной каденции — старые итоги в кэше не годятся
-@api_router.get("/lightcurve")
-async def lightcurve(target: str = Query(..., min_length=2),
-                     period: Optional[float] = Query(None, gt=0)):
-    """Скачивает реальную кривую блеска (TESS/Kepler) и анализирует транзит."""
-    key = f"{norm_name(target)}|{round(period, 6) if period else ''}"
-    dkey = re.sub(r'[^0-9a-zа-яё_.-]', '_', key)   # безопасное имя файла для Windows
+LC_JOBS: Dict[str, Dict[str, Any]] = {}     # id задачи -> {"key", "error", "status", "ts"}
+LC_JOB_TTL = 3600
+LC_DISK = "lightcurve_v2"     # v2: замеры на полной каденции — старые итоги не годятся
+
+
+def _lc_cached(key: str, job_id: str) -> Optional[Dict[str, Any]]:
     now = time.time()
     if key in LC_CACHE and now - LC_CACHE[key][0] < 6 * 3600:
         return LC_CACHE[key][1]
-    disk = disk_cache_read("lightcurve_v2", dkey, 7 * 24 * 3600)
+    disk = disk_cache_read(LC_DISK, job_id, 7 * 24 * 3600)
     if disk:
         LC_CACHE[key] = (now, disk)
-        return disk
-    def _store_late(f):
-        """Даже если клиент отвалился по таймауту — доложим результат в кэши."""
+    return disk
+
+
+def _lc_start(key: str, job_id: str, target: str, period: Optional[float]) -> None:
+    """Запускает анализ в отдельном процессе; итог (или ошибку) кладёт в кэш и LC_JOBS."""
+    if key in LC_INFLIGHT:
+        return
+    job = {"key": key, "status": "running", "error": None, "ts": time.time()}
+    LC_JOBS[job_id] = job
+
+    def _done(f):
         LC_INFLIGHT.pop(key, None)
+        job["ts"] = time.time()
         try:
             res = f.result()
-            if isinstance(res, dict) and "error" not in res:
-                LC_CACHE[key] = (time.time(), res)
-                disk_cache_write("lightcurve_v2", dkey, res)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"lightcurve error: {e}")
+            job.update(status="error", error=(502, f"Ошибка анализа кривой: {e}"))
+            return
+        if isinstance(res, dict) and "error" in res:
+            job.update(status="error", error=(404, res["error"]))
+            return
+        LC_CACHE[key] = (time.time(), res)
+        disk_cache_write(LC_DISK, job_id, res)
+        job["status"] = "done"
 
-    fut = LC_INFLIGHT.get(key)
-    if fut is None:
-        fut = asyncio.get_running_loop().run_in_executor(LC_POOL, analyze_lightcurve_sync, target, period)
-        LC_INFLIGHT[key] = fut
-        fut.add_done_callback(_store_late)
-    try:
-        result = await asyncio.wait_for(asyncio.shield(fut), timeout=420.0)
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail=(
-            "Архив MAST отдаёт данные дольше 7 минут (тяжёлая цель или перегрузка). "
-            "Скачивание продолжается в фоне — повторите запрос чуть позже, ответ будет мгновенным"))
-    except Exception as e:  # noqa: BLE001
-        logger.error(f"lightcurve error: {e}")
-        raise HTTPException(status_code=502, detail=f"Ошибка анализа кривой: {e}")
-    if "error" in result:
-        raise HTTPException(status_code=404, detail=result["error"])
-    return result
+    fut = asyncio.get_running_loop().run_in_executor(LC_POOL, analyze_lightcurve_sync, target, period)
+    LC_INFLIGHT[key] = fut
+    fut.add_done_callback(_done)
+    for jid in [j for j, v in LC_JOBS.items() if time.time() - v["ts"] > LC_JOB_TTL]:
+        LC_JOBS.pop(jid, None)
+
+
+def _lc_pending(job_id: str) -> JSONResponse:
+    return JSONResponse({"status": "running", "job_id": job_id,
+                         "poll": f"/api/lightcurve/jobs/{job_id}"}, status_code=202)
+
+
+@api_router.get("/lightcurve")
+async def lightcurve(target: str = Query(..., min_length=2),
+                     period: Optional[float] = Query(None, gt=0)):
+    """Скачивает реальную кривую блеска (TESS/Kepler) и анализирует транзит.
+
+    Готовый результат (из кэша) — сразу 200. Иначе анализ запускается в фоне и ответ —
+    202 с id задачи: страница опрашивает /lightcurve/jobs/{id}. Так запрос не висит
+    минутами и не упирается в таймаут прокси (Cloudflare рвёт его через ~100 с).
+    """
+    key = f"{norm_name(target)}|{round(period, 6) if period else ''}"
+    job_id = re.sub(r'[^0-9a-zа-яё_.-]', '_', key)   # безопасное имя файла для Windows
+    cached = _lc_cached(key, job_id)
+    if cached:
+        return cached
+    job = LC_JOBS.get(job_id)
+    if job and job["status"] == "error" and time.time() - job["ts"] < 60:
+        code, detail = job["error"]          # свежая ошибка — не перезапускаем сразу
+        raise HTTPException(status_code=code, detail=detail)
+    _lc_start(key, job_id, target, period)
+    return _lc_pending(job_id)
+
+
+@api_router.get("/lightcurve/jobs/{job_id}")
+async def lightcurve_job(job_id: str):
+    """Состояние анализа: 202 — ещё идёт, 200 — результат, 404/502 — ошибка."""
+    if not re.fullmatch(r'[0-9a-zа-яё_.-]{1,120}', job_id):
+        raise HTTPException(status_code=404, detail="Задача не найдена")
+    job = LC_JOBS.get(job_id)
+    if job is None:
+        cached = disk_cache_read(LC_DISK, job_id, 7 * 24 * 3600)
+        if cached:
+            return cached
+        raise HTTPException(status_code=404, detail="Задача не найдена — запустите анализ заново")
+    if job["status"] == "running":
+        return _lc_pending(job_id)
+    if job["status"] == "error":
+        code, detail = job["error"]
+        raise HTTPException(status_code=code, detail=detail)
+    done = _lc_cached(job["key"], job_id)
+    if done is None:
+        raise HTTPException(status_code=404, detail="Результат устарел — запустите анализ заново")
+    return done
 
 
 app.include_router(api_router)

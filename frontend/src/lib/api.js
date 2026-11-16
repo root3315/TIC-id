@@ -1,4 +1,5 @@
 import axios from "axios";
+import { currentLang } from "@/lib/i18n";
 
 // Пустое значение = тот же origin (фронт раздаётся самим backend — работает и через туннели)
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
@@ -66,10 +67,28 @@ export const mlClassify = (payload) =>
 export const getMlToi = (params) =>
   api.get("/ml/toi", { params, timeout: 300000 }).then((r) => r.data);
 
-export const getLightcurve = (target, period) =>
-  api
-    .get("/lightcurve", { params: { target, period: period || undefined }, timeout: 480000 })
-    .then((r) => r.data);
+// Анализ кривой идёт минутами: сервер сразу отвечает 202 с id задачи, а мы опрашиваем
+// её статус — так запрос не упирается в таймаут прокси (Cloudflare рвёт его через ~100 с)
+const LC_POLL_MS = 3000;
+const LC_GIVE_UP_MS = 15 * 60 * 1000;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export const getLightcurve = async (target, period) => {
+  let r = await api.get("/lightcurve", { params: { target, period: period || undefined }, timeout: 60000 });
+  const started = Date.now();
+  while (r.status === 202) {
+    if (Date.now() - started > LC_GIVE_UP_MS) {
+      const err = new Error("lightcurve timeout");
+      err.response = { data: { detail: currentLang() === "en"
+        ? "The analysis is taking over 15 minutes — open the target later, the result will be kept"
+        : "Анализ идёт дольше 15 минут — откройте цель позже, результат сохранится" } };
+      throw err;
+    }
+    await sleep(LC_POLL_MS);
+    r = await api.get(`/lightcurve/jobs/${encodeURIComponent(r.data.job_id)}`, { timeout: 60000 });
+  }
+  return r.data;
+};
 
 // Звезда и все её планеты: по имени хоста или по позиции на небе (ссылка из Muninn)
 export const getSystem = (params) => api.get("/system", { params }).then((r) => r.data);
