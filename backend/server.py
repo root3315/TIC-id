@@ -57,7 +57,9 @@ except Exception as e:  # noqa: BLE001
 
 # ---------- Кэши ----------
 CATALOG: List[Dict[str, Any]] = []          # облегчённые записи всех планет
-CATALOG_LOADED_AT: float = 0.0
+CATALOG_DATA_TS: float = 0.0                # когда данные выгружены из NASA (время файла кэша)
+CATALOG_RETRY_AT: float = 0.0               # после сбоя NASA не дёргаем её каждую минуту
+CATALOG_RETRY = 15 * 60
 HOSTS: List[Dict[str, Any]] = []            # звёзды с планетами (для /system)
 CATALOG_TTL = 24 * 3600
 CATALOG_LOCK = asyncio.Lock()
@@ -241,74 +243,117 @@ async def tap_query(adql: str, timeout: float = 45.0) -> Optional[List[Dict[str,
 CATALOG_DISK_CACHE = ROOT_DIR / "models" / "catalog_cache.json"
 
 
+def catalog_age() -> Optional[float]:
+    """Возраст данных каталога в секундах — от выгрузки из NASA, а не от загрузки в память."""
+    return time.time() - CATALOG_DATA_TS if CATALOG else None
+
+
+def _index_catalog(rows: List[Dict[str, Any]], data_ts: float) -> None:
+    """Готовит строки каталога (ключи поиска, индекс обитаемости) и делает их текущими."""
+    global CATALOG, CATALOG_DATA_TS, HOSTS
+    for row in rows:
+        row['_nplanet'] = norm_name(row.get('pl_name'))
+        row['_nhost'] = norm_name(row.get('hostname'))
+        tic = row.get('tic_id') or ''
+        row['_tic'] = re.sub(r'\D', '', str(tic))
+    # приближённый индекс обитаемости для всего каталога (для фильтра/сортировки)
+    t_score = time.time()
+    for row in rows:
+        try:
+            # тот же набор входов, что и на полной странице планеты, —
+            # иначе оценка в каталоге не совпадёт с оценкой при открытии
+            phys = {"mass": fnum(row.get('pl_bmasse')), "radius": fnum(row.get('pl_rade')),
+                    "equilibrium_temp": fnum(row.get('pl_eqt')),
+                    "insolation": fnum(row.get('pl_insol')),
+                    "density": fnum(row.get('pl_dens'))}
+            orb = {"semi_major_axis": fnum(row.get('pl_orbsmax')),
+                   "eccentricity": fnum(row.get('pl_orbeccen')),
+                   "period": fnum(row.get('pl_orbper'))}
+            star = {"temperature": fnum(row.get('st_teff')),
+                    "radius": fnum(row.get('st_rad')),
+                    "mass": fnum(row.get('st_mass')),
+                    "luminosity_log": fnum(row.get('st_lum')),
+                    "spectral_type": row.get('st_spectype')}
+            der = compute_derived(phys, orb, star)
+            hab = calculate_habitability_score(phys, orb, star, der)
+            row['_hab'] = hab.total_score
+            row['_esi'] = hab.esi
+        except Exception:  # noqa: BLE001
+            row['_hab'] = None
+            row['_esi'] = None
+    logger.info(f"Индекс обитаемости каталога: {time.time() - t_score:.1f} с")
+    rows.sort(key=lambda r: (r.get('pl_name') or '').lower())
+    CATALOG = rows
+    HOSTS = systems.build_host_index(rows)
+    CATALOG_DATA_TS = data_ts
+    logger.info(f"Каталог загружен: {len(CATALOG)} планет")
+
+
+def _read_catalog_disk() -> Optional[Dict[str, Any]]:
+    if not CATALOG_DISK_CACHE.exists():
+        return None
+    try:
+        disk = json.loads(CATALOG_DISK_CACHE.read_text(encoding="utf-8"))
+        return disk if disk.get("rows") else None
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Дисковый кэш каталога нечитаем: {e}")
+        return None
+
+
+async def _refresh_catalog(force: bool = False) -> bool:
+    """Свежий каталог: с диска, если он моложе суток, иначе из NASA TAP.
+    Если NASA не ответила, остаются старые данные (из памяти или с диска) — со своим
+    возрастом; следующая попытка не раньше чем через CATALOG_RETRY."""
+    global CATALOG_RETRY_AT
+    async with CATALOG_LOCK:
+        age = catalog_age()
+        if not force and age is not None and age < CATALOG_TTL:
+            return True
+        disk = None if force else _read_catalog_disk()
+        if disk and time.time() - disk.get("ts", 0) < CATALOG_TTL:
+            logger.info(f"Каталог загружен с диска: {len(disk['rows'])} планет")
+            _index_catalog(disk["rows"], disk["ts"])
+            return True
+        logger.info("Загрузка каталога планет из NASA Exoplanet Archive...")
+        rows = await tap_query(f"SELECT {CATALOG_COLUMNS} FROM pscomppars", timeout=180.0)
+        if rows:
+            now = time.time()
+            try:
+                CATALOG_DISK_CACHE.parent.mkdir(exist_ok=True)
+                CATALOG_DISK_CACHE.write_text(json.dumps({"ts": now, "rows": rows}), encoding="utf-8")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Не записался дисковый кэш каталога: {e}")
+            _index_catalog(rows, now)
+            return True
+        CATALOG_RETRY_AT = time.time() + CATALOG_RETRY
+        if not CATALOG and disk:
+            # NASA молчит, а на диске есть старый каталог — лучше он, чем ошибка
+            _index_catalog(disk["rows"], disk.get("ts", 0.0))
+        if CATALOG:
+            logger.warning(f"NASA TAP не ответил — отдаю каталог возрастом "
+                           f"{catalog_age() / 3600:.1f} ч")
+            return True
+        logger.error("Каталог не загрузился")
+        return False
+
+
+_CATALOG_REFRESH: Optional["asyncio.Task"] = None
+
+
 async def ensure_catalog(force: bool = False) -> bool:
     """Загружает облегчённый каталог всех подтверждённых планет (кэш 24 ч).
     Тёплый старт: свежий каталог читается с диска мгновенно — NASA TAP бывает
-    медленным, и рестарт сервера не должен его ждать."""
-    global CATALOG, CATALOG_LOADED_AT, HOSTS
-    if CATALOG and not force and (time.time() - CATALOG_LOADED_AT) < CATALOG_TTL:
+    медленным, и рестарт сервера не должен его ждать. Устаревший каталог в памяти
+    отдаётся сразу, а обновляется в фоне."""
+    global _CATALOG_REFRESH
+    age = catalog_age()
+    if not force and age is not None and age < CATALOG_TTL:
         return True
-    async with CATALOG_LOCK:
-        if CATALOG and not force and (time.time() - CATALOG_LOADED_AT) < CATALOG_TTL:
-            return True
-        rows = None
-        if not force and CATALOG_DISK_CACHE.exists():
-            try:
-                disk = json.loads(CATALOG_DISK_CACHE.read_text(encoding="utf-8"))
-                if time.time() - disk.get("ts", 0) < CATALOG_TTL and disk.get("rows"):
-                    rows = disk["rows"]
-                    logger.info(f"Каталог загружен с диска: {len(rows)} планет")
-            except Exception as e:  # noqa: BLE001
-                logger.warning(f"Дисковый кэш каталога нечитаем: {e}")
-        if rows is None:
-            logger.info("Загрузка каталога планет из NASA Exoplanet Archive...")
-            rows = await tap_query(f"SELECT {CATALOG_COLUMNS} FROM pscomppars", timeout=180.0)
-            if not rows:
-                logger.error("Каталог не загрузился")
-                return False
-            try:
-                CATALOG_DISK_CACHE.parent.mkdir(exist_ok=True)
-                CATALOG_DISK_CACHE.write_text(
-                    json.dumps({"ts": time.time(), "rows": rows}), encoding="utf-8")
-            except Exception as e:  # noqa: BLE001
-                logger.warning(f"Не записался дисковый кэш каталога: {e}")
-        for row in rows:
-            row['_nplanet'] = norm_name(row.get('pl_name'))
-            row['_nhost'] = norm_name(row.get('hostname'))
-            tic = row.get('tic_id') or ''
-            row['_tic'] = re.sub(r'\D', '', str(tic))
-        # приближённый индекс обитаемости для всего каталога (для фильтра/сортировки)
-        t_score = time.time()
-        for row in rows:
-            try:
-                # тот же набор входов, что и на полной странице планеты, —
-                # иначе оценка в каталоге не совпадёт с оценкой при открытии
-                phys = {"mass": fnum(row.get('pl_bmasse')), "radius": fnum(row.get('pl_rade')),
-                        "equilibrium_temp": fnum(row.get('pl_eqt')),
-                        "insolation": fnum(row.get('pl_insol')),
-                        "density": fnum(row.get('pl_dens'))}
-                orb = {"semi_major_axis": fnum(row.get('pl_orbsmax')),
-                       "eccentricity": fnum(row.get('pl_orbeccen')),
-                       "period": fnum(row.get('pl_orbper'))}
-                star = {"temperature": fnum(row.get('st_teff')),
-                        "radius": fnum(row.get('st_rad')),
-                        "mass": fnum(row.get('st_mass')),
-                        "luminosity_log": fnum(row.get('st_lum')),
-                        "spectral_type": row.get('st_spectype')}
-                der = compute_derived(phys, orb, star)
-                hab = calculate_habitability_score(phys, orb, star, der)
-                row['_hab'] = hab.total_score
-                row['_esi'] = hab.esi
-            except Exception:  # noqa: BLE001
-                row['_hab'] = None
-                row['_esi'] = None
-        logger.info(f"Индекс обитаемости каталога: {time.time() - t_score:.1f} с")
-        rows.sort(key=lambda r: (r.get('pl_name') or '').lower())
-        CATALOG = rows
-        HOSTS = systems.build_host_index(rows)
-        CATALOG_LOADED_AT = time.time()
-        logger.info(f"Каталог загружен: {len(CATALOG)} планет")
+    if not force and CATALOG:
+        if time.time() >= CATALOG_RETRY_AT and (_CATALOG_REFRESH is None or _CATALOG_REFRESH.done()):
+            _CATALOG_REFRESH = asyncio.create_task(_refresh_catalog())
         return True
+    return await _refresh_catalog(force)
 
 
 def catalog_entry_public(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -2002,7 +2047,9 @@ async def stats():
         "years": [{"year": y, "count": c} for y, c in sorted(years.items())],
         "year_range": [min(years) if years else None, max(years) if years else None],
         "nearest": catalog_entry_public(nearest) if nearest else None,
-        "updated_at": datetime.fromtimestamp(CATALOG_LOADED_AT, tz=timezone.utc).isoformat(),
+        "updated_at": datetime.fromtimestamp(CATALOG_DATA_TS, tz=timezone.utc).isoformat(),
+        "age_hours": round(catalog_age() / 3600, 1),
+        "stale": catalog_age() >= CATALOG_TTL,
     }
 
 

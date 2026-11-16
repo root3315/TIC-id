@@ -190,3 +190,31 @@ def test_fnum():
     assert server.fnum("3.14") == pytest.approx(3.14)
     assert server.fnum(None) is None
     assert server.fnum(float("nan")) is None
+
+
+# ---------- устаревший каталог ----------
+
+def test_stale_catalog_is_served_when_nasa_fails(monkeypatch, tmp_path):
+    import asyncio
+    import json
+    import time
+
+    old_ts = time.time() - 3 * 24 * 3600
+    cache = tmp_path / "catalog.json"
+    cache.write_text(json.dumps({"ts": old_ts, "rows": [
+        {"pl_name": "Kepler-186 f", "hostname": "Kepler-186", "ra": 1.0, "dec": 2.0}]}),
+        encoding="utf-8")
+
+    async def no_tap(*a, **k):
+        return None
+
+    monkeypatch.setattr(server, "CATALOG_DISK_CACHE", cache)
+    monkeypatch.setattr(server, "tap_query", no_tap)
+    monkeypatch.setattr(server, "CATALOG", [])
+    monkeypatch.setattr(server, "CATALOG_RETRY_AT", 0.0)
+    monkeypatch.setattr(server, "CATALOG_LOCK", asyncio.Lock())
+
+    assert asyncio.run(server.ensure_catalog()) is True
+    assert abs(server.CATALOG_DATA_TS - old_ts) < 1      # возраст — от файла, а не от загрузки
+    stats = asyncio.run(server.stats())
+    assert stats["stale"] is True and stats["age_hours"] >= 71
