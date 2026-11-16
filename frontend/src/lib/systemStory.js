@@ -107,7 +107,7 @@ const onePlanet = (p, hz, t) => {
     }
   }
   let out = t(`${ru}.`, `${en}.`);
-  if (inZone(p, hz)) out += t(" Она в зоне обитаемости.", " It lies in the habitable zone.");
+  if (inZone(p, hz)) out += t(" Она в оптимистичной зоне обитаемости.", " It lies in the optimistic habitable zone.");
   return out;
 };
 
@@ -126,8 +126,8 @@ const manyPlanets = (planets, hz, t) => {
   }
   let out = t(`${ru}.`, `${en}.`);
   const k = planets.filter((p) => inZone(p, hz)).length;
-  if (k === 1) out += t(" Одна из них — в зоне обитаемости.", " One of them is in the habitable zone.");
-  if (k > 1) out += t(` ${k} из них — в зоне обитаемости.`, ` ${k} of them are in the habitable zone.`);
+  if (k === 1) out += t(" Одна из них — в оптимистичной зоне обитаемости.", " One of them is in the optimistic habitable zone.");
+  if (k > 1) out += t(` ${k} из них — в оптимистичной зоне обитаемости.`, ` ${k} of them are in the optimistic habitable zone.`);
   return out;
 };
 

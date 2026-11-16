@@ -1,5 +1,5 @@
 import {
-  axisDomain, earthEquivalentAu, decadeTicks, labelLanes, logX, planetDotRadius, planetLetter, inHabitableZone,
+  axisDomain, earthEquivalentAu, decadeTicks, labelLanes, logX, planetDotRadius, planetLetter, inHabitableZone, habitableZoneKind,
   stackLabels,
 } from "./systemScale";
 
@@ -77,4 +77,11 @@ describe("stackLabels", () => {
   it("pushes crowded labels down, never up", () => {
     expect(stackLabels([10, 15, 20, 80], 18)).toEqual([10, 28, 46, 80]);
   });
+});
+
+test("habitableZoneKind tells the narrow zone from the wide one", () => {
+  const hz = { inner_optimistic: 0.75, inner_conservative: 0.95, outer_conservative: 1.67, outer_optimistic: 1.77 };
+  expect(habitableZoneKind(1, hz)).toBe("conservative");
+  expect(habitableZoneKind(0.8, hz)).toBe("optimistic");
+  expect(habitableZoneKind(2, hz)).toBe(null);
 });

@@ -61,8 +61,15 @@ export const planetLetter = (name, host) => {
   return rest || name;
 };
 
+/** В оптимистичной зоне обитаемости (она включает консервативную). */
 export const inHabitableZone = (a, hz) =>
   Boolean(hz && Number.isFinite(a) && a >= hz.inner_optimistic && a <= hz.outer_optimistic);
+
+/** Какая зона: "conservative" (узкая), "optimistic" (только широкая) или null. */
+export const habitableZoneKind = (a, hz) => {
+  if (!inHabitableZone(a, hz)) return null;
+  return a >= hz.inner_conservative && a <= hz.outer_conservative ? "conservative" : "optimistic";
+};
 
 /** Подписи вдоль вертикальной оси: каждая не выше своей точки и не ближе minGap
  *  к предыдущей. ys отсортированы по возрастанию; порядок сохраняется. */

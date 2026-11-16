@@ -5,7 +5,7 @@ import { getSystem } from "@/lib/api";
 import { decToDms, fmt, fmtLy, fmtSig, massMark, methodRu, plural, raToHms, scoreColor, starColor } from "@/lib/format";
 import { useT } from "@/lib/i18n";
 import { systemLede } from "@/lib/systemStory";
-import { earthEquivalentAu, inHabitableZone } from "@/lib/systemScale";
+import { earthEquivalentAu, habitableZoneKind } from "@/lib/systemScale";
 import PlanetVisual from "@/components/PlanetVisual";
 import SystemStrip from "@/components/SystemStrip";
 import SystemOrbits from "@/components/SystemOrbits";
@@ -15,6 +15,11 @@ import SystemOrbits from "@/components/SystemOrbits";
 const MUNINN_URL = (process.env.REACT_APP_MUNINN_URL || "https://muninn.mydevbox.xyz").replace(/\/$/, "");
 const LY_PER_PC = 3.26156;
 const VIEWS = [["scale", "В масштабе", "To scale"], ["orbits", "Вид сверху", "Top view"]];
+// Подписи зон для тегов планет: какая именно зона обитаемости
+const HZ_KIND = {
+  conservative: ["консервативная зона обитаемости", "conservative habitable zone"],
+  optimistic: ["оптимистичная зона обитаемости", "optimistic habitable zone"],
+};
 const WIDE = "(min-width: 1024px)";
 const HZ_TAG = { color: "#6ee7b7", borderColor: "rgba(52,211,153,.45)", background: "rgba(52,211,153,.10)" };
 
@@ -217,7 +222,8 @@ const SystemPage = () => {
   const catalogName = skyName && skyName.toLowerCase() !== star.name.toLowerCase() ? star.name : null;
   const luminosity = Number.isFinite(star.luminosity_log) ? 10 ** star.luminosity_log : null;
   const placed = planets.filter((p) => p.a_au > 0);
-  const habitableCount = planets.filter((p) => inHabitableZone(p.a_au, hz)).length;
+  const conservativeCount = planets.filter((p) => habitableZoneKind(p.a_au, hz) === "conservative").length;
+  const habitableCount = planets.filter((p) => habitableZoneKind(p.a_au, hz)).length;
   const chartEdge = placed.length ? Math.max(...placed.map((p) => p.a_au * (1 + (p.eccentricity || 0)))) * 1.12 : 0;
   const hzBeyondScene = hz && chartEdge && hz.inner_optimistic > chartEdge;
   const insideMercury = chartEdge > 0 && chartEdge < 0.3;
@@ -253,9 +259,11 @@ const SystemPage = () => {
                 {habitableCount > 0 && (
                   <span className="tag tag-word" style={HZ_TAG}>
                     <i className="dot" style={{ background: "#34d399" }} />
-                    {habitableCount === planets.length
-                      ? t("в зоне обитаемости", "in the habitable zone")
-                      : t(`${habitableCount} в зоне обитаемости`, `${habitableCount} in the habitable zone`)}
+                    {conservativeCount > 0
+                      ? t(`${conservativeCount} в консервативной зоне обитаемости`, `${conservativeCount} in the conservative habitable zone`)
+                        + (habitableCount > conservativeCount
+                          ? t(`, ещё ${habitableCount - conservativeCount} в оптимистичной`, `, ${habitableCount - conservativeCount} more in the optimistic one`) : "")
+                      : t(`${habitableCount} только в оптимистичной зоне обитаемости`, `${habitableCount} only in the optimistic habitable zone`)}
                   </span>
                 )}
               </div>
@@ -285,12 +293,12 @@ const SystemPage = () => {
         {placed.length > 0 && (
           <section className="panel rounded-xl p-6" aria-labelledby="scale-h">
             <SectionHead icon={Orbit}
-                         title={<span id="scale-h">{t("Система в масштабе", "The system to scale")}</span>}
+                         title={<span id="scale-h">{t("Орбиты в масштабе", "Orbits to scale")}</span>}
                          hint={view === "scale"
-                           ? t("От поверхности звезды наружу, каждое деление в 10 раз дальше — нажмите на планету, чтобы открыть её",
-                             "Outward from the star's surface, each mark ten times farther — click a planet to open it")
-                           : t("Вид сверху в линейном масштабе: скорости по реальным периодам, повороты орбит условные",
-                             "Top view on a linear scale: speeds follow the real periods, orbit orientations are arbitrary")}>
+                           ? t("От поверхности звезды наружу, каждое деление в 10 раз дальше; планеты нарисованы крупнее масштаба — нажмите на планету, чтобы открыть её",
+                             "Outward from the star's surface, each mark ten times farther; planets are drawn larger than scale — click a planet to open it")
+                           : t("Вид сверху в линейном масштабе: скорости по реальным периодам, повороты орбит условные, планеты увеличены",
+                             "Top view on a linear scale: speeds follow the real periods, orbit orientations are arbitrary, planets enlarged")}>
               <div className="tabs-rule flex gap-5" role="group" aria-label={t("Как показать систему", "How to show the system")}>
                 {VIEWS.map(([key, ru, en]) => (
                   <button key={key} type="button" className="tab-trigger sys-tab text-sm pb-2"
@@ -338,8 +346,8 @@ const SystemPage = () => {
                         <span className="tag tabular"><i className="dot" style={{ background: scoreColor(p.habitability) }} />{fmt(p.habitability, 0)}</span>
                       )}
                     </span>
-                    {inHabitableZone(p.a_au, hz) && (
-                      <span className="tag tag-word mt-1" style={HZ_TAG}>{t("в зоне обитаемости", "habitable zone")}</span>
+                    {habitableZoneKind(p.a_au, hz) && (
+                      <span className="tag tag-word mt-1" style={HZ_TAG}>{t(...HZ_KIND[habitableZoneKind(p.a_au, hz)])}</span>
                     )}
                     <span className="block text-[13px] tabular mt-1.5" style={{ color: "var(--ink-2)" }}>
                       {[
@@ -370,7 +378,7 @@ const SystemPage = () => {
               </thead>
               <tbody>
                 {planets.map((p) => {
-                  const habitable = inHabitableZone(p.a_au, hz);
+                  const habitable = habitableZoneKind(p.a_au, hz);
                   return (
                     <tr key={p.name}
                         onClick={() => open(p.name)}
@@ -384,7 +392,7 @@ const SystemPage = () => {
                           <PlanetVisual radius={p.radius_earth} teq={p.teq_k} mass={p.mass_earth} size={22} />
                           {p.name}
                           {habitable && (
-                            <span className="tag tag-word" style={HZ_TAG}>{t("в зоне обитаемости", "habitable zone")}</span>
+                            <span className="tag tag-word" style={HZ_TAG}>{t(...HZ_KIND[habitable])}</span>
                           )}
                         </Link>
                         <span className="block text-xs mt-0.5 pl-[32px]" style={{ color: "var(--ink-4)" }}>
