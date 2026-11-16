@@ -256,10 +256,13 @@ def _index_catalog(rows: List[Dict[str, Any]], data_ts: float) -> None:
         row['_nhost'] = norm_name(row.get('hostname'))
         tic = row.get('tic_id') or ''
         row['_tic'] = re.sub(r'\D', '', str(tic))
+    hosts = systems.build_host_index(rows)
+    stellar_by_host = {h["hostname"]: h["stellar"] for h in hosts}
     # приближённый индекс обитаемости для всего каталога (для фильтра/сортировки)
     t_score = time.time()
     for row in rows:
         try:
+            srow = stellar_by_host.get(row.get('hostname'), row)
             # тот же набор входов, что и на полной странице планеты, —
             # иначе оценка в каталоге не совпадёт с оценкой при открытии
             phys = {"mass": fnum(row.get('pl_bmasse')), "radius": fnum(row.get('pl_rade')),
@@ -269,11 +272,11 @@ def _index_catalog(rows: List[Dict[str, Any]], data_ts: float) -> None:
             orb = {"semi_major_axis": fnum(row.get('pl_orbsmax')),
                    "eccentricity": fnum(row.get('pl_orbeccen')),
                    "period": fnum(row.get('pl_orbper'))}
-            star = {"temperature": fnum(row.get('st_teff')),
-                    "radius": fnum(row.get('st_rad')),
-                    "mass": fnum(row.get('st_mass')),
-                    "luminosity_log": fnum(row.get('st_lum')),
-                    "spectral_type": row.get('st_spectype')}
+            star = {"temperature": fnum(srow.get('st_teff')),
+                    "radius": fnum(srow.get('st_rad')),
+                    "mass": fnum(srow.get('st_mass')),
+                    "luminosity_log": fnum(srow.get('st_lum')),
+                    "spectral_type": srow.get('st_spectype')}
             der = compute_derived(phys, orb, star)
             hab = calculate_habitability_score(phys, orb, star, der)
             row['_hab'] = hab.total_score
@@ -284,7 +287,7 @@ def _index_catalog(rows: List[Dict[str, Any]], data_ts: float) -> None:
     logger.info(f"Индекс обитаемости каталога: {time.time() - t_score:.1f} с")
     rows.sort(key=lambda r: (r.get('pl_name') or '').lower())
     CATALOG = rows
-    HOSTS = systems.build_host_index(rows)
+    HOSTS = hosts
     CATALOG_DATA_TS = data_ts
     logger.info(f"Каталог загружен: {len(CATALOG)} планет")
 
@@ -300,6 +303,11 @@ def _read_catalog_disk() -> Optional[Dict[str, Any]]:
         return None
 
 
+def _has_all_columns(rows: List[Dict[str, Any]]) -> bool:
+    """Кэш от старой версии без новых колонок считаем устаревшим."""
+    return all(c in rows[0] for c in CATALOG_COLUMNS.split(","))
+
+
 async def _refresh_catalog(force: bool = False) -> bool:
     """Свежий каталог: с диска, если он моложе суток, иначе из NASA TAP.
     Если NASA не ответила, остаются старые данные (из памяти или с диска) — со своим
@@ -310,7 +318,7 @@ async def _refresh_catalog(force: bool = False) -> bool:
         if not force and age is not None and age < CATALOG_TTL:
             return True
         disk = None if force else _read_catalog_disk()
-        if disk and time.time() - disk.get("ts", 0) < CATALOG_TTL:
+        if disk and time.time() - disk.get("ts", 0) < CATALOG_TTL and _has_all_columns(disk["rows"]):
             logger.info(f"Каталог загружен с диска: {len(disk['rows'])} планет")
             _index_catalog(disk["rows"], disk["ts"])
             return True
@@ -1498,11 +1506,14 @@ async def build_planet_detail(pl_name: str, include_heavy: bool = True,
             simbad = aliases = wiki = None
             system_planets = []
     system_planets = system_planets or []
+    host = host_entry(hostname)
+    star_row = await stellar_params_row(row, host)
     _mark_progress(key, stage="compute")
 
     phys = extract_physical_params(row)
     orb = extract_orbital_params(row)
-    star = extract_host_star(row, simbad)
+    star = extract_host_star(star_row, simbad)
+    star["params_from"] = star_row.get('pl_name')
     derived = compute_derived(phys, orb, star)
     hab = calculate_habitability_score(phys, orb, star, derived)
 
@@ -1522,7 +1533,8 @@ async def build_planet_detail(pl_name: str, include_heavy: bool = True,
         "discovery_info": extract_discovery(row),
         "system": {
             "star_count": row.get('sy_snum'),
-            "planet_count": row.get('sy_pnum'),
+            # sy_pnum считает и планеты-кандидаты из других статей; берём известные архиву
+            "planet_count": len(host["planets"]) if host else row.get('sy_pnum'),
             "moon_count": row.get('sy_mnum'),
             "planets": system_planets,
         },
@@ -1557,6 +1569,23 @@ async def build_planet_detail(pl_name: str, include_heavy: bool = True,
 
     _mark_progress(key, stage="done")
     return data
+
+
+def host_entry(hostname: Optional[str]) -> Optional[Dict[str, Any]]:
+    return next((h for h in HOSTS if h["hostname"] == hostname), None) if hostname else None
+
+
+async def stellar_params_row(row: Dict[str, Any], host: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Строка, из которой странице планеты брать параметры звезды, — та же, что у
+    страницы системы (systems.stellar_row). Если это строка другой планеты, звёздные
+    колонки (st_*) берём из неё целиком, а планетные остаются свои."""
+    src = ((host or {}).get("stellar") or {}).get("pl_name")
+    if not src or src == row.get('pl_name'):
+        return row
+    other = await _within(fetch_nasa_full_row(src), 8.0)
+    if not other:
+        return row
+    return {**row, **{k: v for k, v in other.items() if k.startswith("st_")}, "pl_name": src}
 
 
 _DETAIL_INFLIGHT: Dict[str, "asyncio.Task"] = {}

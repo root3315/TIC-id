@@ -90,3 +90,14 @@ def test_hosts_compact_listing(rows):
     hosts = systems.build_host_index(rows)
     listing = systems.hosts_compact(hosts)
     assert {"h": "tau Cet", "ra": 26.02, "dec": -15.94, "n": 3} in listing
+
+
+def test_star_parameters_come_from_one_row():
+    # у b есть только Teff, у c — Teff, R и M из другой статьи: смешивать нельзя
+    rows = [row("X b", "X", 1.0, 1.0, st_teff=5000, sy_dist=10.0),
+            row("X c", "X", 1.0, 1.0, st_teff=5200, st_rad=0.9, st_mass=0.95)]
+    out = systems.system_payload(systems.build_host_index(rows)[0], hz=None)
+    assert out["star"]["temperature"] == 5200
+    assert out["star"]["radius"] == 0.9
+    assert out["star"]["params_from"] == "X c"
+    assert out["star"]["distance_pc"] == 10.0

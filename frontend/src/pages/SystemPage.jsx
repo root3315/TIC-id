@@ -408,6 +408,9 @@ const SystemPage = () => {
           <Database className="w-3.5 h-3.5" aria-hidden="true" />
           {t("Данные: NASA Exoplanet Archive (pscomppars). Обитаемость — оценка ExoVision по размеру, температуре и орбите, из 100.",
             "Data: NASA Exoplanet Archive (pscomppars). Habitability is ExoVision's 0–100 estimate from size, temperature and orbit.")}
+          {star.params_from && planets.length > 1 && ` ${t(
+            `Параметры звезды — из одной записи архива (${star.params_from}).`,
+            `Star parameters come from one archive record (${star.params_from}).`)}`}
         </p>
       </div>
     </div>
