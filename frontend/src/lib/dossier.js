@@ -35,8 +35,9 @@ export async function exportPlanetDossier(data, t) {
   const catText = t(hab.category_ru || "", hab.category || "") || (cls ? cls.label : "");
   const descr = (data.wikipedia && data.wikipedia.extract) || data.summary || "";
 
-  const hzMap = { optimistic: t("оптимистичная зона", "optimistic HZ"), conservative: t("консервативная зона", "conservative HZ"), inside: t("ближе зоны", "inside HZ"), outside: t("за пределами зоны", "outside HZ") };
-  const tidalMap = { likely: t("вероятен", "likely"), unlikely: t("маловероятен", "unlikely"), locked: t("захвачена", "locked") };
+  // значения — как их отдаёт API (compute_derived: hz_position, tidal_locking)
+  const hzMap = { optimistic: t("оптимистичная зона", "optimistic HZ"), conservative: t("консервативная зона", "conservative HZ"), inner: t("ближе зоны", "inside the HZ inner edge"), outer: t("дальше зоны", "beyond the HZ outer edge") };
+  const tidalMap = { likely: t("вероятен", "likely"), possible: t("возможен", "possible"), unlikely: t("маловероятен", "unlikely") };
 
   // ── строительные блоки ────────────────────────────────────────────
   const card = (inner) =>
