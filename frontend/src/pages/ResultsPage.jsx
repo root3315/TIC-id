@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { getPlanet, getPlanetImages, getPlanetStatus } from "@/lib/api";
-import { fmt, methodRu, planetClass, tempZone, categoryStyle, localHistory, densityOf } from "@/lib/format";
+import { fmt, massMark, methodRu, planetClass, tempZone, categoryStyle, localHistory, densityOf } from "@/lib/format";
 import { isFavorite, toggleFavorite } from "@/lib/favorites";
 import { useT } from "@/lib/i18n";
 import { exportPlanetDossier } from "@/lib/dossier";
@@ -369,7 +369,7 @@ const ResultsPage = () => {
               <div className="flex flex-wrap justify-center lg:justify-start gap-x-10 gap-y-3 mt-6">
                 {[
                   [t("Радиус", "Radius"), phys.radius ? `${fmt(phys.radius)} R⊕` : "—"],
-                  [t("Масса", "Mass"), phys.mass ? `${fmt(phys.mass)} M⊕` : "—"],
+                  [t("Масса", "Mass"), phys.mass ? `${massMark(phys.mass_kind)}${fmt(phys.mass)} M⊕` : "—"],
                   [t("Год", "Year"), derived.year_length_days ? `${fmt(derived.year_length_days, 1)} ${t("сут", "days")}` : "—"],
                   [t("До нас", "Distance"), derived.distance_ly ? `${fmt(derived.distance_ly, 0)} ${t("св. лет", "ly")}` : "—"],
                 ].map(([k, v]) => (

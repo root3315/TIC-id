@@ -103,6 +103,18 @@ def find_host_by_name(hosts: List[Dict[str, Any]], name: str) -> Optional[Dict[s
             or next((h for h in hosts if key in h.get("aliases", ())), None))
 
 
+def mass_kind(provenance: Optional[str]) -> Optional[str]:
+    """Что за масса в pl_bmasse: измерена, нижний предел (M sin i) или оценка по радиусу."""
+    prov = (provenance or "").lower()
+    if not prov:
+        return None
+    if "m-r" in prov or "relation" in prov:
+        return "estimated"
+    if "sin" in prov and "/sin" not in prov:
+        return "minimum"
+    return "measured"
+
+
 def orbit_axis_au(a: Optional[float], period_days: Optional[float],
                   star_mass: Optional[float]) -> Tuple[Optional[float], bool]:
     """Большая полуось; если в каталоге её нет, то по третьему закону Кеплера."""
@@ -139,6 +151,7 @@ def system_payload(host: Dict[str, Any], hz: Optional[dict],
             "eccentricity": _num(r.get("pl_orbeccen")),
             "radius_earth": _num(r.get("pl_rade")),
             "mass_earth": _num(r.get("pl_bmasse")),
+            "mass_kind": mass_kind(r.get("pl_bmassprov")),
             "teq_k": _num(r.get("pl_eqt")),
             "habitability": r.get("_hab"),
             "disc_year": r.get("disc_year"),

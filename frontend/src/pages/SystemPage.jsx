@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Database, Globe, MapPin, Orbit } from "lucide-react";
 import { getSystem } from "@/lib/api";
-import { decToDms, fmt, fmtSig, methodRu, plural, raToHms, scoreColor, starColor } from "@/lib/format";
+import { decToDms, fmt, fmtSig, massMark, methodRu, plural, raToHms, scoreColor, starColor } from "@/lib/format";
 import { useT } from "@/lib/i18n";
 import { systemLede } from "@/lib/systemStory";
 import { earthEquivalentAu, inHabitableZone } from "@/lib/systemScale";
@@ -17,6 +17,8 @@ const LY_PER_PC = 3.26156;
 const VIEWS = [["scale", "В масштабе", "To scale"], ["orbits", "Вид сверху", "Top view"]];
 const WIDE = "(min-width: 1024px)";
 const HZ_TAG = { color: "#6ee7b7", borderColor: "rgba(52,211,153,.45)", background: "rgba(52,211,153,.10)" };
+
+const massText = (p) => `${massMark(p.mass_kind)}${fmt(p.mass_earth, p.mass_earth < 10 ? 2 : 0)}`;
 
 const num = (v) => (v === null || v === "" || v === undefined ? NaN : Number(v));
 const inSky = (ra, dec) => Number.isFinite(ra) && Number.isFinite(dec) && ra >= 0 && ra < 360 && Math.abs(dec) <= 90;
@@ -344,7 +346,7 @@ const SystemPage = () => {
                         `${p.a_estimated ? "≈" : ""}${fmtSig(p.a_au, 3)} ${t("а.е.", "AU")}`,
                         p.period_days && `${fmt(p.period_days, p.period_days < 10 ? 2 : 0)} ${t("сут", "d")}`,
                         p.radius_earth && `${fmt(p.radius_earth, 2)} R⊕`,
-                        p.mass_earth && `${fmt(p.mass_earth, p.mass_earth < 10 ? 2 : 0)} M⊕`,
+                        p.mass_earth && `${massText(p)} M⊕`,
                         p.teq_k && `${fmt(p.teq_k, 0)} K`,
                       ].filter(Boolean).join(" · ")}
                     </span>
@@ -392,7 +394,7 @@ const SystemPage = () => {
                       <td className="py-2.5 pr-4 tabular">{p.a_estimated ? "≈" : ""}{fmtSig(p.a_au, 3)}</td>
                       <td className="py-2.5 pr-4 tabular">{fmt(p.period_days, p.period_days < 10 ? 2 : 0)}</td>
                       <td className="py-2.5 pr-4 tabular">{fmt(p.radius_earth, 2)}</td>
-                      <td className="py-2.5 pr-4 tabular">{fmt(p.mass_earth, p.mass_earth < 10 ? 2 : 0)}</td>
+                      <td className="py-2.5 pr-4 tabular">{p.mass_earth != null ? massText(p) : "—"}</td>
                       <td className="py-2.5 pr-4 tabular">{fmt(p.teq_k, 0)}</td>
                       <td className="py-2.5 text-right">
                         {p.habitability != null ? (
@@ -411,6 +413,9 @@ const SystemPage = () => {
           <Database className="w-3.5 h-3.5" aria-hidden="true" />
           {t("Данные: NASA Exoplanet Archive (pscomppars). Обитаемость — оценка ExoVision по размеру, температуре и орбите, из 100.",
             "Data: NASA Exoplanet Archive (pscomppars). Habitability is ExoVision's 0–100 estimate from size, temperature and orbit.")}
+          {planets.some((p) => p.mass_kind === "estimated" || p.mass_kind === "minimum") && ` ${t(
+            "Масса: ≈ — оценка по радиусу (не измерена), ≥ — нижний предел M sin i.",
+            "Mass: ≈ is estimated from the radius (not measured), ≥ is the M sin i lower limit.")}`}
           {star.params_from && planets.length > 1 && ` ${t(
             `Параметры звезды — из одной записи архива (${star.params_from}).`,
             `Star parameters come from one archive record (${star.params_from}).`)}`}

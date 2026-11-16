@@ -35,6 +35,10 @@ export const fmtErr = (v, err, digits = 2) => {
   return `${base} +${plus}/−${minus}`;
 };
 
+// Масса из pscomppars бывает оценкой по радиусу (≈) или нижним пределом M sin i (≥)
+const MASS_MARK = { estimated: "≈", minimum: "≥" };
+export const massMark = (kind) => MASS_MARK[kind] || "";
+
 export const kelvinToC = (k) => (k == null ? null : k - 273.15);
 
 export const METHOD_RU = {

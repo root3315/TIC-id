@@ -108,3 +108,11 @@ def test_host_found_by_planet_name_alias():
     hosts = systems.build_host_index(rows)
     assert systems.find_host_by_name(hosts, "Kepler-90")["hostname"] == "KOI-351"
     assert systems.find_host_by_name(hosts, "KOI-351")["hostname"] == "KOI-351"
+
+
+def test_mass_kind_from_provenance():
+    assert systems.mass_kind("M-R relationship") == "estimated"
+    assert systems.mass_kind("Msini") == "minimum"
+    assert systems.mass_kind("Msin(i)/sin(i)") == "measured"
+    assert systems.mass_kind("Mass") == "measured"
+    assert systems.mass_kind(None) is None

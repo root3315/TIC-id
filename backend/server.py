@@ -102,7 +102,7 @@ HIPS2FITS = "https://alasky.cds.unistra.fr/hips-image-services/hips2fits"
 CATALOG_COLUMNS = (
     "pl_name,hostname,tic_id,disc_year,discoverymethod,disc_facility,"
     "sy_dist,pl_rade,pl_bmasse,pl_eqt,pl_orbper,pl_orbsmax,pl_orbeccen,"
-    "pl_insol,pl_dens,st_spectype,st_teff,st_rad,st_mass,st_lum,sy_snum,sy_pnum,ra,dec"
+    "pl_insol,pl_dens,pl_bmassprov,st_spectype,st_teff,st_rad,st_mass,st_lum,sy_snum,sy_pnum,ra,dec"
 )
 
 
@@ -656,6 +656,7 @@ def extract_physical_params(row: dict) -> dict:
         "mass_err": get_err(row, 'pl_bmasse'),
         "mass_jupiter": fnum(row.get('pl_bmassj')),
         "mass_provenance": row.get('pl_bmassprov'),
+        "mass_kind": systems.mass_kind(row.get('pl_bmassprov')),
         "radius": fnum(row.get('pl_rade')),
         "radius_err": get_err(row, 'pl_rade'),
         "radius_jupiter": fnum(row.get('pl_radj')),
