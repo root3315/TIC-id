@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { getPlanet, getPlanetImages, getPlanetStatus } from "@/lib/api";
-import { fmt, massMark, methodRu, planetClass, tempZone, categoryStyle, localHistory, densityOf } from "@/lib/format";
+import { fmt, fmtLy, massMark, methodRu, planetClass, tempZone, categoryStyle, localHistory, densityOf } from "@/lib/format";
 import { isFavorite, toggleFavorite } from "@/lib/favorites";
 import { useT } from "@/lib/i18n";
 import { exportPlanetDossier } from "@/lib/dossier";
@@ -371,7 +371,7 @@ const ResultsPage = () => {
                   [t("Радиус", "Radius"), phys.radius ? `${fmt(phys.radius)} R⊕` : "—"],
                   [t("Масса", "Mass"), phys.mass ? `${massMark(phys.mass_kind)}${fmt(phys.mass)} M⊕` : "—"],
                   [t("Год", "Year"), derived.year_length_days ? `${fmt(derived.year_length_days, 1)} ${t("сут", "days")}` : "—"],
-                  [t("До нас", "Distance"), derived.distance_ly ? `${fmt(derived.distance_ly, 0)} ${t("св. лет", "ly")}` : "—"],
+                  [t("До нас", "Distance"), derived.distance_ly ? `${fmtLy(derived.distance_ly)} ${t("св. лет", "ly")}` : "—"],
                 ].map(([k, v]) => (
                   <div key={k}>
                     <div className="label-mono" style={{ color: "var(--ink-4)" }}>{k}</div>

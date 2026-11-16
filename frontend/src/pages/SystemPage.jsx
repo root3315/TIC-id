@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Database, Globe, MapPin, Orbit } from "lucide-react";
 import { getSystem } from "@/lib/api";
-import { decToDms, fmt, fmtSig, massMark, methodRu, plural, raToHms, scoreColor, starColor } from "@/lib/format";
+import { decToDms, fmt, fmtLy, fmtSig, massMark, methodRu, plural, raToHms, scoreColor, starColor } from "@/lib/format";
 import { useT } from "@/lib/i18n";
 import { systemLede } from "@/lib/systemStory";
 import { earthEquivalentAu, inHabitableZone } from "@/lib/systemScale";
@@ -229,7 +229,7 @@ const SystemPage = () => {
     star.radius && [t("Радиус", "Radius"), `${fmt(star.radius, star.radius < 10 ? 2 : 1)} R☉`],
     star.mass && [t("Масса", "Mass"), `${fmt(star.mass, 2)} M☉`],
     luminosity && [t("Светимость", "Luminosity"), `${luminosity >= 10 ? fmt(luminosity, 0) : fmtSig(luminosity, 2)} L☉`],
-    star.distance_pc && [t("До нас", "Distance"), `${fmt(star.distance_pc * LY_PER_PC, 0)} ${t("св. лет", "ly")}`],
+    star.distance_pc && [t("До нас", "Distance"), `${fmtLy(star.distance_pc * LY_PER_PC)} ${t("св. лет", "ly")}`],
   ].filter(Boolean);
 
   return (
