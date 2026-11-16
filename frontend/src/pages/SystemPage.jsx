@@ -177,13 +177,16 @@ const SystemPage = () => {
   const [active, setActive] = useState(null);
 
   useEffect(() => {
-    if (!host && !inSky(ra, dec)) {
+    // Muninn присылает имя звезды и позицию: сначала ищем по имени (у тесных пар,
+    // как HD 41004 A и B, ближайшая по позиции звезда может оказаться соседкой)
+    const byName = host || skyName;
+    if (!byName && !inSky(ra, dec)) {
       setState({ status: "invalid", data: null });
       return undefined;
     }
     let cancelled = false;
     setState({ status: "loading", data: null });
-    getSystem(host ? { host, ...(inSky(ra, dec) && { ra, dec }) } : { ra, dec })
+    getSystem(byName ? { host: byName, ...(inSky(ra, dec) && { ra, dec }) } : { ra, dec })
       .then((data) => !cancelled && setState({ status: "ready", data }))
       .catch((e) => !cancelled && setState({
         status: e.response?.status === 404 ? (inSky(ra, dec) ? "empty" : "notfound") : "error", data: null,
@@ -191,7 +194,7 @@ const SystemPage = () => {
     return () => {
       cancelled = true;
     };
-  }, [host, ra, dec]);
+  }, [host, skyName, ra, dec]);
 
   const back = fromMuninn && (
     <a href={muninnFieldUrl(ra, dec, skyName)} className="tag tag-link tag-word" data-testid="back-to-muninn">

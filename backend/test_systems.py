@@ -101,3 +101,10 @@ def test_star_parameters_come_from_one_row():
     assert out["star"]["radius"] == 0.9
     assert out["star"]["params_from"] == "X c"
     assert out["star"]["distance_pc"] == 10.0
+
+
+def test_host_found_by_planet_name_alias():
+    rows = [row("Kepler-90 b", "KOI-351", 284.4, 49.3), row("Kepler-90 h", "KOI-351", 284.4, 49.3)]
+    hosts = systems.build_host_index(rows)
+    assert systems.find_host_by_name(hosts, "Kepler-90")["hostname"] == "KOI-351"
+    assert systems.find_host_by_name(hosts, "KOI-351")["hostname"] == "KOI-351"

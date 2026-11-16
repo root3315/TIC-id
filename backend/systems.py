@@ -58,6 +58,12 @@ def stellar_row(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
                key=lambda r: sum(_filled(r.get(k)) for k in STELLAR_KEYS))
 
 
+def planet_name_prefix(pl_name: Optional[str]) -> str:
+    """Имя звезды, как его пишут в имени планеты: «Kepler-90 b» → «kepler90»."""
+    parts = (pl_name or "").rsplit(" ", 1)
+    return _norm(parts[0]) if len(parts) == 2 else ""
+
+
 def build_host_index(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Звёзды с планетами: одна запись на хост, планеты сгруппированы."""
     hosts: Dict[str, Dict[str, Any]] = {}
@@ -71,6 +77,8 @@ def build_host_index(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         host["planets"].append(r)
     for host in hosts.values():
         host["stellar"] = stellar_row(host["planets"])
+        # другие имена звезды из имён планет: у KOI-351 планеты зовутся Kepler-90 b…
+        host["aliases"] = {planet_name_prefix(p.get("pl_name")) for p in host["planets"]} - {"", host["key"]}
     return list(hosts.values())
 
 
@@ -87,8 +95,12 @@ def nearest_host(hosts: List[Dict[str, Any]], ra: float, dec: float,
 
 
 def find_host_by_name(hosts: List[Dict[str, Any]], name: str) -> Optional[Dict[str, Any]]:
+    """Звезда по имени из архива, а если такого нет — по имени из имён её планет."""
     key = _norm(name)
-    return next((h for h in hosts if h["key"] == key), None) if key else None
+    if not key:
+        return None
+    return (next((h for h in hosts if h["key"] == key), None)
+            or next((h for h in hosts if key in h.get("aliases", ())), None))
 
 
 def orbit_axis_au(a: Optional[float], period_days: Optional[float],
