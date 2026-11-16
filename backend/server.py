@@ -34,6 +34,7 @@ from PIL import Image, ImageDraw, ImageFilter
 import numpy as np
 
 import lc_pipeline
+import transit_fit
 import mast_lite
 import systems
 
@@ -2711,6 +2712,30 @@ def run_bls(time_v: np.ndarray, flux_v: np.ndarray) -> Optional[Dict[str, Any]]:
 FITS_CACHE_DIR = DISK_CACHE_DIR / "fits"
 
 
+def _flattened(lc) -> tuple:
+    """Убираем медленную переменность звезды окном 0,75 сут (как lightkurve.flatten)."""
+    cad_days = float(np.median(np.diff(lc.time)))
+    wl = max(51, int(round(0.75 / max(cad_days, 1e-5))))
+    wl += (wl + 1) % 2
+    try:
+        flat = lc_pipeline.flatten(lc, window_length=min(wl, (len(lc) // 2) * 2 - 1))
+    except Exception:  # noqa: BLE001
+        flat = lc
+    ok = np.isfinite(flat.time) & np.isfinite(flat.flux)
+    return flat.time[ok], flat.flux[ok]
+
+
+def _first_guess(time_v: np.ndarray, flux_v: np.ndarray, period: float):
+    """Середина транзита и длительность по грубой свёртке — старт для transit_fit,
+    когда период задан вручную и BLS не запускался."""
+    phase = ((time_v - time_v[0]) / period) % 1.0
+    binned = bin_folded(phase - 0.5, flux_v)
+    centre = (int(np.argmin(binned)) + 0.5) / len(binned)          # фаза минимума
+    gm = global_metrics(binned, period)[0]
+    dur = max(gm.get("duration_hours") or 0.0, 1.0) / 24
+    return float(time_v[0] + centre * period), dur
+
+
 def analyze_lightcurve_sync(target: str, period: Optional[float]) -> Dict[str, Any]:
     files = mast_lite.search_files(target)
     if not files:
@@ -2746,19 +2771,11 @@ def analyze_lightcurve_sync(target: str, period: Optional[float]) -> Dict[str, A
         source_label = f"{who}{f' · сектор {seg}' if seg else ''}"
 
     lc = lc_pipeline.prepare(lcs)
-    time_v = lc.time
-    if len(time_v) < 100:
+    if len(lc) < 100:
         return {"error": "Слишком мало точек в кривой блеска"}
-    cad_days = float(np.median(np.diff(time_v)))
-    wl = max(51, int(round(0.75 / max(cad_days, 1e-5))))
-    wl += (wl + 1) % 2
-    try:
-        flat = lc_pipeline.flatten(lc, window_length=min(wl, (len(lc) // 2) * 2 - 1))
-    except Exception:  # noqa: BLE001
-        flat = lc
-    time_v, flux_v = flat.time, flat.flux
-    ok = np.isfinite(time_v) & np.isfinite(flux_v)
-    time_v, flux_v = time_v[ok], flux_v[ok]
+    time_v, flux_v = _flattened(lc)
+    # для замеров транзита — та же кривая, но без срезания провалов (дно транзита цело)
+    time_m, flux_m = _flattened(lc_pipeline.prepare(lcs, clip_dips=False))
 
     stride = max(1, len(time_v) // 2400)
     t0 = float(time_v[0])
@@ -2769,19 +2786,36 @@ def analyze_lightcurve_sync(target: str, period: Optional[float]) -> Dict[str, A
         "target": target,
         "source": source_label,
         "n_points": int(len(time_v)),
-        "cadence_min": round(cad_days * 1440, 1),
+        "cadence_min": round(float(np.median(np.diff(time_v))) * 1440, 1),
         "days_span": round(float(time_v[-1] - time_v[0]), 1),
         "raw": raw_points,
     }
 
     # период не задан — ищем его алгоритмом BLS
+    t_mid = dur_guess = None
     if not period:
         bls = run_bls(time_v, flux_v)
         if bls:
             out["bls"] = bls
             period = bls["best_period"]
+            t_mid, dur_guess = bls["t0"], bls["duration_h"] / 24
 
     if period and period > 0:
+        # глубину, длительность и форму меряем на полной каденции (transit_fit), а не по
+        # 128 фазовым бинам: там короткий транзит размазан. Уточнённый период делает
+        # свёртку для нейросети резче — как у каталожных периодов KOI, на которых она училась
+        if t_mid is None:
+            t_mid, dur_guess = _first_guess(time_v, flux_v, period)
+        fit = transit_fit.measure_transit(time_m, flux_m, period, t_mid, dur_guess)
+        if fit:
+            period = fit["period"]
+            if out.get("bls"):
+                out["bls"].update({"best_period": round(period, 6), "t0": fit["t0"],
+                                   "depth_ppm": fit["depth_ppm"],
+                                   "duration_h": fit["duration_hours"], "refined": True})
+
+        # вход нейросети — ровно как при обучении (lc_common): фаза от первой точки,
+        # 128 бинов с транзитом в центре, локальный вид по длительности из этих бинов
         phase = ((time_v - time_v[0]) / period + 0.5) % 1.0 - 0.5
         binned = bin_folded(phase, flux_v)
         binned, shift = center_on_minimum(binned)
@@ -2813,9 +2847,17 @@ def analyze_lightcurve_sync(target: str, period: Optional[float]) -> Dict[str, A
             "duration_hours": gm.get("duration_hours"),
             "flat_bottom_ratio": linfo["flat_bottom_ratio"],
             "v_shaped": linfo["v_shaped"],
+            "v_shape_marginal": False,
             "secondary_depth_ppm": gm["secondary_depth_ppm"],
             "secondary_significant": gm["secondary_significant"],
+            "measured_on": "folded_bins",
         }
+        if fit:
+            checks.update({k: fit[k] for k in ("depth_ppm", "noise_ppm", "snr", "duration_hours",
+                                               "ingress_hours", "flat_bottom_ratio", "v_shaped",
+                                               "v_shape_marginal", "shape_resolved")})
+            checks["depth_folded_ppm"] = gm["depth_ppm"]
+            checks["measured_on"] = "native_cadence"
 
         # нечёт/чёт: фолдим на 2P — транзиты должны быть одинаковой глубины
         phase2 = ((time_v - time_v[0]) / (2 * period) + 0.5) % 1.0 - 0.5
@@ -2847,12 +2889,19 @@ def analyze_lightcurve_sync(target: str, period: Optional[float]) -> Dict[str, A
             verdict = ["Форма сигнала соответствует планетному транзиту",
                        "Форма сигнала похожа на затменную двойную звезду",
                        "Явного транзита в сложенной кривой не видно"][best]
+            if best == 1 and not (checks["v_shaped"] or checks["secondary_significant"]
+                                  or odd_even["suspicious"]):
+                verdict = ("Нейросеть склоняется к затменной двойной, но классические проверки "
+                           "(форма, вторичное затмение, чёт/нечёт) этого не подтверждают")
 
         notes = []
         if checks["snr"] < 7:
             notes.append("Сигнал слабый — вывод ненадёжен")
         if checks["v_shaped"]:
             notes.append("V-образная форма без плоского дна — признак затменной двойной")
+        elif checks["v_shape_marginal"]:
+            notes.append("Дно узкое — так бывает и у скользящего транзита планеты; "
+                         "само по себе это не признак двойной")
         if checks["secondary_significant"]:
             notes.append("Глубокое вторичное затмение на фазе 0.5 — вероятна затменная двойная")
         if odd_even["suspicious"]:
@@ -2862,6 +2911,7 @@ def analyze_lightcurve_sync(target: str, period: Optional[float]) -> Dict[str, A
 
         out["folded"] = {
             "period_days": period,
+            "fit": fit,
             "scatter": folded_scatter,
             "bins": folded_bins,
             "local_bins": local_bins,
@@ -2874,6 +2924,7 @@ def analyze_lightcurve_sync(target: str, period: Optional[float]) -> Dict[str, A
     return out
 
 
+# v2: замеры на полной каденции — старые итоги в кэше не годятся
 @api_router.get("/lightcurve")
 async def lightcurve(target: str = Query(..., min_length=2),
                      period: Optional[float] = Query(None, gt=0)):
@@ -2883,7 +2934,7 @@ async def lightcurve(target: str = Query(..., min_length=2),
     now = time.time()
     if key in LC_CACHE and now - LC_CACHE[key][0] < 6 * 3600:
         return LC_CACHE[key][1]
-    disk = disk_cache_read("lightcurve", dkey, 7 * 24 * 3600)
+    disk = disk_cache_read("lightcurve_v2", dkey, 7 * 24 * 3600)
     if disk:
         LC_CACHE[key] = (now, disk)
         return disk
@@ -2894,7 +2945,7 @@ async def lightcurve(target: str = Query(..., min_length=2),
             res = f.result()
             if isinstance(res, dict) and "error" not in res:
                 LC_CACHE[key] = (time.time(), res)
-                disk_cache_write("lightcurve", dkey, res)
+                disk_cache_write("lightcurve_v2", dkey, res)
         except Exception:  # noqa: BLE001
             pass
 

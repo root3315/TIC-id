@@ -369,6 +369,7 @@ const AIDetectorPage = () => {
                       </span>
                       <span className="text-xs text-slate-500">
                         {t("глубина", "depth")} ≈ {fmt(lcData.bls.depth_ppm, 0)} ppm · {t("длительность", "duration")} ≈ {fmt(lcData.bls.duration_h, 1)} {t("ч", "h")}
+                        {lcData.bls.refined && ` · ${t("уточнено по полной каденции", "refined at native cadence")}`}
                         {lcData.bls.max_period && ` · ${t("искали до", "searched up to")} ${fmt(lcData.bls.max_period, 0)} ${t("сут", "d")}`}
                       </span>
                     </div>
@@ -523,6 +524,12 @@ const AIDetectorPage = () => {
                         <CheckRow label={t("Чёт/нечёт транзиты", "Odd/even transits")}
                           value={folded.odd_even.suspicious ? t(`разные (${fmt(folded.odd_even.diff_pct, 0)}%)`, `differ (${fmt(folded.odd_even.diff_pct, 0)}%)`) : t("совпадают", "match")}
                           ok={!folded.odd_even.suspicious} warn={folded.odd_even.suspicious} />
+                        {folded.checks.measured_on === "native_cadence" && (
+                          <p className="text-xs text-slate-500 mt-3">
+                            {t(`Глубина, длительность и форма — подгонка трапеции по точкам полной каденции (${fmt(folded.fit?.cadence_min, 1)} мин); в сложенной кривой глубина ${fmt(folded.checks.depth_folded_ppm, 0)} ppm — бины её размазывают.`,
+                              `Depth, duration and shape come from a trapezoid fit to native-cadence points (${fmt(folded.fit?.cadence_min, 1)} min); the folded curve gives ${fmt(folded.checks.depth_folded_ppm, 0)} ppm because its bins smear the transit.`)}
+                          </p>
+                        )}
                       </div>
 
                       <div className="panel rounded-xl p-5">
