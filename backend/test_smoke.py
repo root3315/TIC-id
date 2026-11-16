@@ -218,3 +218,26 @@ def test_stale_catalog_is_served_when_nasa_fails(monkeypatch, tmp_path):
     assert abs(server.CATALOG_DATA_TS - old_ts) < 1      # возраст — от файла, а не от загрузки
     stats = asyncio.run(server.stats())
     assert stats["stale"] is True and stats["age_hours"] >= 71
+
+
+# ---------- задачи анализа кривых ----------
+
+def test_lightcurve_job_rejects_paths_and_unknown_ids():
+    import asyncio
+    from fastapi import HTTPException
+
+    for bad in ("..\..\secrets", "nope_nothing_here"):
+        with pytest.raises(HTTPException) as e:
+            asyncio.run(server.lightcurve_job(bad))
+        assert e.value.status_code == 404
+
+
+def test_lightcurve_job_reports_running_then_result(monkeypatch):
+    import asyncio
+
+    server.LC_JOBS["kepler-10_"] = {"key": "kepler10|", "status": "running", "error": None, "ts": 0}
+    assert asyncio.run(server.lightcurve_job("kepler-10_")).status_code == 202
+    server.LC_JOBS["kepler-10_"]["status"] = "done"
+    monkeypatch.setitem(server.LC_CACHE, "kepler10|", (9e18, {"target": "Kepler-10"}))
+    assert asyncio.run(server.lightcurve_job("kepler-10_")) == {"target": "Kepler-10"}
+    server.LC_JOBS.pop("kepler-10_")
