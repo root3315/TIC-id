@@ -139,6 +139,7 @@ const OrbitalTab = ({ data }) => {
             e={orb.eccentricity || 0}
             hz={hz}
             starTeff={star.temperature}
+            starRadius={star.radius}
             planetName={data.name}
             height={440}
           />
