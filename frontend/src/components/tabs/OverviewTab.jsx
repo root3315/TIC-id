@@ -4,7 +4,7 @@ import {
   Calendar, Target, MapPin, Thermometer, BarChart2, AlertCircle,
   CheckCircle, Globe, BookOpen, Tag, Orbit, ExternalLink,
 } from "lucide-react";
-import { fmt, methodRu, plural, scoreColor } from "@/lib/format";
+import { fmt, fmtLy, methodRu, plural, scoreColor } from "@/lib/format";
 import PlanetVisual from "@/components/PlanetVisual";
 import { prefetchPlanet } from "@/lib/api";
 import { useT } from "@/lib/i18n";
@@ -121,7 +121,7 @@ const OverviewTab = ({ data }) => {
           value={disc.discovery_year}
           hint={`${methodRu(disc.discovery_method)}${disc.discovery_facility ? ` · ${disc.discovery_facility}` : ""}`} />
         <FactCard icon={MapPin} label={t("Расстояние", "Distance")}
-          value={derived.distance_ly ? `${fmt(derived.distance_ly, 0)} ${t("св. лет", "ly")}` : null}
+          value={derived.distance_ly ? `${fmtLy(derived.distance_ly)} ${t("св. лет", "ly")}` : null}
           hint={lightDeparture(derived.distance_ly, t)
             ? `${t("видимый сейчас свет вылетел в", "the light we see now left in")} ${lightDeparture(derived.distance_ly, t)}`
             : star.distance ? `${fmt(star.distance, 1)} ${t("парсек", "parsec")}` : null} />

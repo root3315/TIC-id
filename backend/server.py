@@ -34,6 +34,7 @@ from PIL import Image, ImageDraw, ImageFilter
 import numpy as np
 
 import lc_pipeline
+import transit_fit
 import mast_lite
 import systems
 
@@ -57,7 +58,9 @@ except Exception as e:  # noqa: BLE001
 
 # ---------- Кэши ----------
 CATALOG: List[Dict[str, Any]] = []          # облегчённые записи всех планет
-CATALOG_LOADED_AT: float = 0.0
+CATALOG_DATA_TS: float = 0.0                # когда данные выгружены из NASA (время файла кэша)
+CATALOG_RETRY_AT: float = 0.0               # после сбоя NASA не дёргаем её каждую минуту
+CATALOG_RETRY = 15 * 60
 HOSTS: List[Dict[str, Any]] = []            # звёзды с планетами (для /system)
 CATALOG_TTL = 24 * 3600
 CATALOG_LOCK = asyncio.Lock()
@@ -100,7 +103,7 @@ HIPS2FITS = "https://alasky.cds.unistra.fr/hips-image-services/hips2fits"
 CATALOG_COLUMNS = (
     "pl_name,hostname,tic_id,disc_year,discoverymethod,disc_facility,"
     "sy_dist,pl_rade,pl_bmasse,pl_eqt,pl_orbper,pl_orbsmax,pl_orbeccen,"
-    "pl_insol,pl_dens,st_spectype,st_teff,st_rad,st_mass,st_lum,sy_snum,sy_pnum,ra,dec"
+    "pl_insol,pl_dens,pl_bmassprov,st_spectype,st_teff,st_rad,st_mass,st_lum,sy_snum,sy_pnum,ra,dec"
 )
 
 
@@ -241,74 +244,125 @@ async def tap_query(adql: str, timeout: float = 45.0) -> Optional[List[Dict[str,
 CATALOG_DISK_CACHE = ROOT_DIR / "models" / "catalog_cache.json"
 
 
+def catalog_age() -> Optional[float]:
+    """Возраст данных каталога в секундах — от выгрузки из NASA, а не от загрузки в память."""
+    return time.time() - CATALOG_DATA_TS if CATALOG else None
+
+
+def _index_catalog(rows: List[Dict[str, Any]], data_ts: float) -> None:
+    """Готовит строки каталога (ключи поиска, индекс обитаемости) и делает их текущими."""
+    global CATALOG, CATALOG_DATA_TS, HOSTS
+    for row in rows:
+        row['_nplanet'] = norm_name(row.get('pl_name'))
+        row['_nhost'] = norm_name(row.get('hostname'))
+        tic = row.get('tic_id') or ''
+        row['_tic'] = re.sub(r'\D', '', str(tic))
+    hosts = systems.build_host_index(rows)
+    stellar_by_host = {h["hostname"]: h["stellar"] for h in hosts}
+    # приближённый индекс обитаемости для всего каталога (для фильтра/сортировки)
+    t_score = time.time()
+    for row in rows:
+        try:
+            srow = stellar_by_host.get(row.get('hostname'), row)
+            # тот же набор входов, что и на полной странице планеты, —
+            # иначе оценка в каталоге не совпадёт с оценкой при открытии
+            phys = {"mass": fnum(row.get('pl_bmasse')), "radius": fnum(row.get('pl_rade')),
+                    "equilibrium_temp": fnum(row.get('pl_eqt')),
+                    "insolation": fnum(row.get('pl_insol')),
+                    "density": fnum(row.get('pl_dens'))}
+            orb = {"semi_major_axis": fnum(row.get('pl_orbsmax')),
+                   "eccentricity": fnum(row.get('pl_orbeccen')),
+                   "period": fnum(row.get('pl_orbper'))}
+            star = {"temperature": fnum(srow.get('st_teff')),
+                    "radius": fnum(srow.get('st_rad')),
+                    "mass": fnum(srow.get('st_mass')),
+                    "luminosity_log": fnum(srow.get('st_lum')),
+                    "spectral_type": srow.get('st_spectype')}
+            der = compute_derived(phys, orb, star)
+            hab = calculate_habitability_score(phys, orb, star, der)
+            row['_hab'] = hab.total_score
+            row['_esi'] = hab.esi
+        except Exception:  # noqa: BLE001
+            row['_hab'] = None
+            row['_esi'] = None
+    logger.info(f"Индекс обитаемости каталога: {time.time() - t_score:.1f} с")
+    rows.sort(key=lambda r: (r.get('pl_name') or '').lower())
+    CATALOG = rows
+    HOSTS = hosts
+    CATALOG_DATA_TS = data_ts
+    logger.info(f"Каталог загружен: {len(CATALOG)} планет")
+
+
+def _read_catalog_disk() -> Optional[Dict[str, Any]]:
+    if not CATALOG_DISK_CACHE.exists():
+        return None
+    try:
+        disk = json.loads(CATALOG_DISK_CACHE.read_text(encoding="utf-8"))
+        return disk if disk.get("rows") else None
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Дисковый кэш каталога нечитаем: {e}")
+        return None
+
+
+def _has_all_columns(rows: List[Dict[str, Any]]) -> bool:
+    """Кэш от старой версии без новых колонок считаем устаревшим."""
+    return all(c in rows[0] for c in CATALOG_COLUMNS.split(","))
+
+
+async def _refresh_catalog(force: bool = False) -> bool:
+    """Свежий каталог: с диска, если он моложе суток, иначе из NASA TAP.
+    Если NASA не ответила, остаются старые данные (из памяти или с диска) — со своим
+    возрастом; следующая попытка не раньше чем через CATALOG_RETRY."""
+    global CATALOG_RETRY_AT
+    async with CATALOG_LOCK:
+        age = catalog_age()
+        if not force and age is not None and age < CATALOG_TTL:
+            return True
+        disk = None if force else _read_catalog_disk()
+        if disk and time.time() - disk.get("ts", 0) < CATALOG_TTL and _has_all_columns(disk["rows"]):
+            logger.info(f"Каталог загружен с диска: {len(disk['rows'])} планет")
+            _index_catalog(disk["rows"], disk["ts"])
+            return True
+        logger.info("Загрузка каталога планет из NASA Exoplanet Archive...")
+        rows = await tap_query(f"SELECT {CATALOG_COLUMNS} FROM pscomppars", timeout=180.0)
+        if rows:
+            now = time.time()
+            try:
+                CATALOG_DISK_CACHE.parent.mkdir(exist_ok=True)
+                CATALOG_DISK_CACHE.write_text(json.dumps({"ts": now, "rows": rows}), encoding="utf-8")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Не записался дисковый кэш каталога: {e}")
+            _index_catalog(rows, now)
+            return True
+        CATALOG_RETRY_AT = time.time() + CATALOG_RETRY
+        if not CATALOG and disk:
+            # NASA молчит, а на диске есть старый каталог — лучше он, чем ошибка
+            _index_catalog(disk["rows"], disk.get("ts", 0.0))
+        if CATALOG:
+            logger.warning(f"NASA TAP не ответил — отдаю каталог возрастом "
+                           f"{catalog_age() / 3600:.1f} ч")
+            return True
+        logger.error("Каталог не загрузился")
+        return False
+
+
+_CATALOG_REFRESH: Optional["asyncio.Task"] = None
+
+
 async def ensure_catalog(force: bool = False) -> bool:
     """Загружает облегчённый каталог всех подтверждённых планет (кэш 24 ч).
     Тёплый старт: свежий каталог читается с диска мгновенно — NASA TAP бывает
-    медленным, и рестарт сервера не должен его ждать."""
-    global CATALOG, CATALOG_LOADED_AT, HOSTS
-    if CATALOG and not force and (time.time() - CATALOG_LOADED_AT) < CATALOG_TTL:
+    медленным, и рестарт сервера не должен его ждать. Устаревший каталог в памяти
+    отдаётся сразу, а обновляется в фоне."""
+    global _CATALOG_REFRESH
+    age = catalog_age()
+    if not force and age is not None and age < CATALOG_TTL:
         return True
-    async with CATALOG_LOCK:
-        if CATALOG and not force and (time.time() - CATALOG_LOADED_AT) < CATALOG_TTL:
-            return True
-        rows = None
-        if not force and CATALOG_DISK_CACHE.exists():
-            try:
-                disk = json.loads(CATALOG_DISK_CACHE.read_text(encoding="utf-8"))
-                if time.time() - disk.get("ts", 0) < CATALOG_TTL and disk.get("rows"):
-                    rows = disk["rows"]
-                    logger.info(f"Каталог загружен с диска: {len(rows)} планет")
-            except Exception as e:  # noqa: BLE001
-                logger.warning(f"Дисковый кэш каталога нечитаем: {e}")
-        if rows is None:
-            logger.info("Загрузка каталога планет из NASA Exoplanet Archive...")
-            rows = await tap_query(f"SELECT {CATALOG_COLUMNS} FROM pscomppars", timeout=180.0)
-            if not rows:
-                logger.error("Каталог не загрузился")
-                return False
-            try:
-                CATALOG_DISK_CACHE.parent.mkdir(exist_ok=True)
-                CATALOG_DISK_CACHE.write_text(
-                    json.dumps({"ts": time.time(), "rows": rows}), encoding="utf-8")
-            except Exception as e:  # noqa: BLE001
-                logger.warning(f"Не записался дисковый кэш каталога: {e}")
-        for row in rows:
-            row['_nplanet'] = norm_name(row.get('pl_name'))
-            row['_nhost'] = norm_name(row.get('hostname'))
-            tic = row.get('tic_id') or ''
-            row['_tic'] = re.sub(r'\D', '', str(tic))
-        # приближённый индекс обитаемости для всего каталога (для фильтра/сортировки)
-        t_score = time.time()
-        for row in rows:
-            try:
-                # тот же набор входов, что и на полной странице планеты, —
-                # иначе оценка в каталоге не совпадёт с оценкой при открытии
-                phys = {"mass": fnum(row.get('pl_bmasse')), "radius": fnum(row.get('pl_rade')),
-                        "equilibrium_temp": fnum(row.get('pl_eqt')),
-                        "insolation": fnum(row.get('pl_insol')),
-                        "density": fnum(row.get('pl_dens'))}
-                orb = {"semi_major_axis": fnum(row.get('pl_orbsmax')),
-                       "eccentricity": fnum(row.get('pl_orbeccen')),
-                       "period": fnum(row.get('pl_orbper'))}
-                star = {"temperature": fnum(row.get('st_teff')),
-                        "radius": fnum(row.get('st_rad')),
-                        "mass": fnum(row.get('st_mass')),
-                        "luminosity_log": fnum(row.get('st_lum')),
-                        "spectral_type": row.get('st_spectype')}
-                der = compute_derived(phys, orb, star)
-                hab = calculate_habitability_score(phys, orb, star, der)
-                row['_hab'] = hab.total_score
-                row['_esi'] = hab.esi
-            except Exception:  # noqa: BLE001
-                row['_hab'] = None
-                row['_esi'] = None
-        logger.info(f"Индекс обитаемости каталога: {time.time() - t_score:.1f} с")
-        rows.sort(key=lambda r: (r.get('pl_name') or '').lower())
-        CATALOG = rows
-        HOSTS = systems.build_host_index(rows)
-        CATALOG_LOADED_AT = time.time()
-        logger.info(f"Каталог загружен: {len(CATALOG)} планет")
+    if not force and CATALOG:
+        if time.time() >= CATALOG_RETRY_AT and (_CATALOG_REFRESH is None or _CATALOG_REFRESH.done()):
+            _CATALOG_REFRESH = asyncio.create_task(_refresh_catalog())
         return True
+    return await _refresh_catalog(force)
 
 
 def catalog_entry_public(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -603,6 +657,7 @@ def extract_physical_params(row: dict) -> dict:
         "mass_err": get_err(row, 'pl_bmasse'),
         "mass_jupiter": fnum(row.get('pl_bmassj')),
         "mass_provenance": row.get('pl_bmassprov'),
+        "mass_kind": systems.mass_kind(row.get('pl_bmassprov')),
         "radius": fnum(row.get('pl_rade')),
         "radius_err": get_err(row, 'pl_rade'),
         "radius_jupiter": fnum(row.get('pl_radj')),
@@ -708,20 +763,24 @@ def extract_discovery(row: dict) -> dict:
     }
 
 
-# --- Зона обитаемости (Kopparapu et al. 2013, приближение) ---
+# --- Зона обитаемости (Kopparapu et al. 2013, ApJ 765, 131; коэффициенты по исправлению
+# ApJ 770, 82 — таблица 3). Формула верна для Teff 2600–7200 K: за краями Teff прижимаем
+# к границе и говорим об этом в ответе.
 _KOPPARAPU = {
     # Seff_sun, a, b, c, d
-    "recent_venus":      (1.7763, 1.4335e-4, 3.3954e-9, -7.6364e-12, -1.1950e-15),
-    "runaway_greenhouse": (1.0385, 1.2456e-4, 1.4612e-8, -7.6345e-12, -1.7511e-15),
-    "max_greenhouse":    (0.3507, 5.9578e-5, 1.6707e-9, -3.0058e-12, -5.1925e-16),
-    "early_mars":        (0.3207, 5.4471e-5, 1.5275e-9, -2.1709e-12, -3.8282e-16),
+    "recent_venus":      (1.7753, 1.4316e-4, 2.9875e-9, -7.5702e-12, -1.1635e-15),
+    "runaway_greenhouse": (1.0512, 1.3242e-4, 1.5418e-8, -7.9895e-12, -1.8328e-15),
+    "max_greenhouse":    (0.3438, 5.8942e-5, 1.6558e-9, -3.0045e-12, -5.2983e-16),
+    "early_mars":        (0.3179, 5.4513e-5, 1.5313e-9, -2.7786e-12, -4.8997e-16),
 }
+HZ_TEFF_RANGE = (2600.0, 7200.0)
 
 
 def kopparapu_hz(st_teff: Optional[float], luminosity: Optional[float]) -> Optional[dict]:
     if not st_teff or not luminosity or luminosity <= 0:
         return None
-    t = max(2600.0, min(7200.0, st_teff)) - 5780.0
+    teff_used = max(HZ_TEFF_RANGE[0], min(HZ_TEFF_RANGE[1], st_teff))
+    t = teff_used - 5780.0
     bounds = {}
     for key, (s0, a, b, c, d) in _KOPPARAPU.items():
         seff = s0 + a * t + b * t**2 + c * t**3 + d * t**4
@@ -733,6 +792,9 @@ def kopparapu_hz(st_teff: Optional[float], luminosity: Optional[float]) -> Optio
         "inner_conservative": round(bounds["runaway_greenhouse"], 4),
         "outer_conservative": round(bounds["max_greenhouse"], 4),
         "outer_optimistic": round(bounds["early_mars"], 4),
+        # Teff вне диапазона формулы: границы посчитаны для ближайшего края
+        "teff_clamped": teff_used != st_teff,
+        "teff_used": teff_used,
     }
 
 
@@ -1446,11 +1508,14 @@ async def build_planet_detail(pl_name: str, include_heavy: bool = True,
             simbad = aliases = wiki = None
             system_planets = []
     system_planets = system_planets or []
+    host = host_entry(hostname)
+    star_row = await stellar_params_row(row, host)
     _mark_progress(key, stage="compute")
 
     phys = extract_physical_params(row)
     orb = extract_orbital_params(row)
-    star = extract_host_star(row, simbad)
+    star = extract_host_star(star_row, simbad)
+    star["params_from"] = star_row.get('pl_name')
     derived = compute_derived(phys, orb, star)
     hab = calculate_habitability_score(phys, orb, star, derived)
 
@@ -1470,7 +1535,8 @@ async def build_planet_detail(pl_name: str, include_heavy: bool = True,
         "discovery_info": extract_discovery(row),
         "system": {
             "star_count": row.get('sy_snum'),
-            "planet_count": row.get('sy_pnum'),
+            # sy_pnum считает и планеты-кандидаты из других статей; берём известные архиву
+            "planet_count": len(host["planets"]) if host else row.get('sy_pnum'),
             "moon_count": row.get('sy_mnum'),
             "planets": system_planets,
         },
@@ -1505,6 +1571,23 @@ async def build_planet_detail(pl_name: str, include_heavy: bool = True,
 
     _mark_progress(key, stage="done")
     return data
+
+
+def host_entry(hostname: Optional[str]) -> Optional[Dict[str, Any]]:
+    return next((h for h in HOSTS if h["hostname"] == hostname), None) if hostname else None
+
+
+async def stellar_params_row(row: Dict[str, Any], host: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Строка, из которой странице планеты брать параметры звезды, — та же, что у
+    страницы системы (systems.stellar_row). Если это строка другой планеты, звёздные
+    колонки (st_*) берём из неё целиком, а планетные остаются свои."""
+    src = ((host or {}).get("stellar") or {}).get("pl_name")
+    if not src or src == row.get('pl_name'):
+        return row
+    other = await _within(fetch_nasa_full_row(src), 8.0)
+    if not other:
+        return row
+    return {**row, **{k: v for k, v in other.items() if k.startswith("st_")}, "pl_name": src}
 
 
 _DETAIL_INFLIGHT: Dict[str, "asyncio.Task"] = {}
@@ -1995,7 +2078,9 @@ async def stats():
         "years": [{"year": y, "count": c} for y, c in sorted(years.items())],
         "year_range": [min(years) if years else None, max(years) if years else None],
         "nearest": catalog_entry_public(nearest) if nearest else None,
-        "updated_at": datetime.fromtimestamp(CATALOG_LOADED_AT, tz=timezone.utc).isoformat(),
+        "updated_at": datetime.fromtimestamp(CATALOG_DATA_TS, tz=timezone.utc).isoformat(),
+        "age_hours": round(catalog_age() / 3600, 1),
+        "stale": catalog_age() >= CATALOG_TTL,
     }
 
 
@@ -2525,8 +2610,28 @@ async def ml_toi(disp: str = Query("PC,APC"), limit: int = Query(60, le=200),
 
 # ---------- Анализ реальных кривых блеска ----------
 
+BLS_SHORT_MAX = 30.0          # до 30 сут — плотная сетка и короткие транзиты
+BLS_LONG_MAX_STEPS = 6000     # длинные периоды: сетка реже, чтобы ТВ-бокс считал минуты, а не часы
+BLS_LONG_MIN_DUR = 0.1        # сут; на длинных периодах транзиты длиннее 2,4 ч
+BLS_MAX_DUR = 16.0 / 24       # сут
+
+
+def _bls_pass(t, f, periods, durations, oversample=10):
+    pg = lc_pipeline.bls_power(t, f, periods, durations, oversample)
+    return {"periods": np.asarray(periods, dtype=float), "power": np.asarray(pg.power, dtype=float),
+            "depth": np.asarray(pg.depth, dtype=float), "duration": np.asarray(pg.duration, dtype=float),
+            "t0": np.asarray(pg.transit_time, dtype=float), "durations": durations,
+            "oversample": oversample}
+
+
 def run_bls(time_v: np.ndarray, flux_v: np.ndarray) -> Optional[Dict[str, Any]]:
-    """Поиск периода транзита алгоритмом Box Least Squares (порт astropy на numpy)."""
+    """Поиск периода транзита алгоритмом Box Least Squares (порт astropy на numpy).
+
+    Периоды — до половины длины ряда (нужно хотя бы два транзита). До 30 сут — плотная
+    логарифмическая сетка и длительности 0,5–6 ч; дальше — сетка реже (с ограничением
+    по числу шагов) и длительности растут с периодом, до ~0,1·P^(1/3) сут (не больше 16 ч).
+    Значимость — стандартный SDE: (пик − среднее) / σ по всей периодограмме.
+    """
     try:
         # биннинг: BLS по ~10 тыс. точек считается за секунды
         span = float(time_v[-1] - time_v[0])
@@ -2535,62 +2640,68 @@ def run_bls(time_v: np.ndarray, flux_v: np.ndarray) -> Optional[Dict[str, Any]]:
         bin_days = (30.0 if span > 60 else 10.0) / 1440.0
         t, f = lc_pipeline.bin_time_series(time_v, flux_v, bin_days)
 
-        max_period = min(span / 2.5, 30.0)
-        min_period = 0.3
+        min_period, max_period = 0.3, span / 2.0
         if max_period <= min_period * 1.2:
             return None
         durations = np.array([0.02, 0.05, 0.09, 0.15, 0.25])
         durations = durations[durations < min_period * 0.95]
-        # проход 1: логарифмическая сетка по всему диапазону
-        periods = np.geomspace(min_period, max_period, 12000)
-        pg = lc_pipeline.bls_power(t, f, periods, durations)
-        power = np.asarray(pg.power, dtype=float)
+        passes = [_bls_pass(t, f, np.geomspace(min_period, min(max_period, BLS_SHORT_MAX), 12000),
+                            durations)]
+        if max_period > BLS_SHORT_MAX * 1.05:
+            d_max = min(0.1 * max_period ** (1 / 3), BLS_MAX_DUR)
+            long_durs = np.geomspace(BLS_LONG_MIN_DUR, max(d_max, BLS_LONG_MIN_DUR * 1.5), 5)
+            # шаг: за всю длину ряда транзит сдвигается не больше чем на кратчайшую длительность
+            n_long = int(np.log(max_period / BLS_SHORT_MAX) * span / BLS_LONG_MIN_DUR)
+            n_long = int(np.clip(n_long, 300, BLS_LONG_MAX_STEPS))
+            passes.append(_bls_pass(t, f, np.geomspace(BLS_SHORT_MAX, max_period, n_long),
+                                    long_durs, oversample=5))
+
+        periods = np.concatenate([q["periods"] for q in passes])
+        power = np.concatenate([q["power"] for q in passes])
+        pg_depth = np.concatenate([q["depth"] for q in passes])
+        pg_dur = np.concatenate([q["duration"] for q in passes])
+        pg_t0 = np.concatenate([q["t0"] for q in passes])
+        power = np.where(np.isfinite(power), power, np.nan)
         best = int(np.nanargmax(power))
-        # проход 2: уточнение узкой линейной сеткой вокруг пика
-        p_lo, p_hi = periods[best] * 0.99, periods[best] * 1.01
-        fine = np.linspace(p_lo, p_hi, 2000)
-        pg_fine = lc_pipeline.bls_power(t, f, fine, durations)
-        best_fine = int(np.nanargmax(pg_fine.power))
-        # подменяем найденный пик уточнённым значением
-        periods = np.asarray(periods, dtype=float)
-        periods[best] = float(fine[best_fine])
-        power[best] = float(pg_fine.power[best_fine])
-        pg_depth = np.asarray(pg.depth, dtype=float)
-        pg_dur = np.asarray(pg.duration, dtype=float)
-        pg_t0 = np.asarray(pg.transit_time, dtype=float)
-        pg_depth[best] = float(pg_fine.depth[best_fine])
-        pg_dur[best] = float(pg_fine.duration[best_fine])
-        pg_t0[best] = float(pg_fine.transit_time[best_fine])
-        med = float(np.nanmedian(power))
-        mad = float(np.nanmedian(np.abs(power - med))) * 1.4826 + 1e-12
-        sde = (float(power[best]) - med) / mad
+        src = passes[0] if best < len(passes[0]["periods"]) else passes[-1]
+
+        # уточнение узкой линейной сеткой вокруг пика — подменяем найденный пик
+        fine = _bls_pass(t, f, np.linspace(periods[best] * 0.99, periods[best] * 1.01, 2000),
+                         src["durations"], src["oversample"])
+        bf = int(np.nanargmax(fine["power"]))
+        periods[best] = fine["periods"][bf]
+        power[best] = fine["power"][bf]
+        pg_depth[best], pg_dur[best], pg_t0[best] = fine["depth"][bf], fine["duration"][bf], fine["t0"][bf]
+
+        mean, std = float(np.nanmean(power)), float(np.nanstd(power)) + 1e-12
+        z = (power - mean) / std        # периодограмма в единицах SDE
+        sde = float(z[best])
 
         # топ-3 независимых пика (не гармоники выбранного в пределах 3%)
         peaks = []
-        order = np.argsort(-power)
-        for i in order:
+        for i in np.argsort(-np.nan_to_num(power, nan=-np.inf)):
             p = float(periods[i])
             if any(abs(p - q["period"]) / q["period"] < 0.03
                    or abs(p / q["period"] - round(p / q["period"])) < 0.02
                    or abs(q["period"] / p - round(q["period"] / p)) < 0.02
                    for q in peaks):
                 continue
-            peaks.append({"period": round(p, 5),
-                          "sde": round((float(power[i]) - med) / mad, 1)})
+            peaks.append({"period": round(p, 5), "sde": round(float(z[i]), 1)})
             if len(peaks) >= 3:
                 break
 
+        order = np.argsort(periods)
         stride = max(1, len(periods) // 500)
-        keep = sorted(set(range(0, len(periods), stride)) | {best})  # пик не теряем
-        z = (power - med) / mad  # периодограмма в единицах значимости (σ)
+        keep = sorted(set(order[::stride].tolist()) | {best}, key=lambda i: periods[i])  # пик не теряем
         return {
             "best_period": round(float(periods[best]), 6),
             "t0": float(pg_t0[best]),
             "duration_h": round(float(pg_dur[best]) * 24, 2),
             "depth_ppm": round(float(pg_depth[best]) * 1e6, 1),
             "sde": round(sde, 1),
+            "max_period": round(max_period, 2),
             "peaks": peaks,
-            "periodogram": [{"P": round(float(periods[i]), 4), "power": round(float(z[i]), 2)}
+            "periodogram": [{"P": round(float(periods[i]), 4), "power": round(float(np.nan_to_num(z[i])), 2)}
                             for i in keep],
         }
     except Exception as e:  # noqa: BLE001
@@ -2599,6 +2710,30 @@ def run_bls(time_v: np.ndarray, flux_v: np.ndarray) -> Optional[Dict[str, Any]]:
 
 
 FITS_CACHE_DIR = DISK_CACHE_DIR / "fits"
+
+
+def _flattened(lc) -> tuple:
+    """Убираем медленную переменность звезды окном 0,75 сут (как lightkurve.flatten)."""
+    cad_days = float(np.median(np.diff(lc.time)))
+    wl = max(51, int(round(0.75 / max(cad_days, 1e-5))))
+    wl += (wl + 1) % 2
+    try:
+        flat = lc_pipeline.flatten(lc, window_length=min(wl, (len(lc) // 2) * 2 - 1))
+    except Exception:  # noqa: BLE001
+        flat = lc
+    ok = np.isfinite(flat.time) & np.isfinite(flat.flux)
+    return flat.time[ok], flat.flux[ok]
+
+
+def _first_guess(time_v: np.ndarray, flux_v: np.ndarray, period: float):
+    """Середина транзита и длительность по грубой свёртке — старт для transit_fit,
+    когда период задан вручную и BLS не запускался."""
+    phase = ((time_v - time_v[0]) / period) % 1.0
+    binned = bin_folded(phase - 0.5, flux_v)
+    centre = (int(np.argmin(binned)) + 0.5) / len(binned)          # фаза минимума
+    gm = global_metrics(binned, period)[0]
+    dur = max(gm.get("duration_hours") or 0.0, 1.0) / 24
+    return float(time_v[0] + centre * period), dur
 
 
 def analyze_lightcurve_sync(target: str, period: Optional[float]) -> Dict[str, Any]:
@@ -2636,19 +2771,11 @@ def analyze_lightcurve_sync(target: str, period: Optional[float]) -> Dict[str, A
         source_label = f"{who}{f' · сектор {seg}' if seg else ''}"
 
     lc = lc_pipeline.prepare(lcs)
-    time_v = lc.time
-    if len(time_v) < 100:
+    if len(lc) < 100:
         return {"error": "Слишком мало точек в кривой блеска"}
-    cad_days = float(np.median(np.diff(time_v)))
-    wl = max(51, int(round(0.75 / max(cad_days, 1e-5))))
-    wl += (wl + 1) % 2
-    try:
-        flat = lc_pipeline.flatten(lc, window_length=min(wl, (len(lc) // 2) * 2 - 1))
-    except Exception:  # noqa: BLE001
-        flat = lc
-    time_v, flux_v = flat.time, flat.flux
-    ok = np.isfinite(time_v) & np.isfinite(flux_v)
-    time_v, flux_v = time_v[ok], flux_v[ok]
+    time_v, flux_v = _flattened(lc)
+    # для замеров транзита — та же кривая, но без срезания провалов (дно транзита цело)
+    time_m, flux_m = _flattened(lc_pipeline.prepare(lcs, clip_dips=False))
 
     stride = max(1, len(time_v) // 2400)
     t0 = float(time_v[0])
@@ -2659,19 +2786,36 @@ def analyze_lightcurve_sync(target: str, period: Optional[float]) -> Dict[str, A
         "target": target,
         "source": source_label,
         "n_points": int(len(time_v)),
-        "cadence_min": round(cad_days * 1440, 1),
+        "cadence_min": round(float(np.median(np.diff(time_v))) * 1440, 1),
         "days_span": round(float(time_v[-1] - time_v[0]), 1),
         "raw": raw_points,
     }
 
     # период не задан — ищем его алгоритмом BLS
+    t_mid = dur_guess = None
     if not period:
         bls = run_bls(time_v, flux_v)
         if bls:
             out["bls"] = bls
             period = bls["best_period"]
+            t_mid, dur_guess = bls["t0"], bls["duration_h"] / 24
 
     if period and period > 0:
+        # глубину, длительность и форму меряем на полной каденции (transit_fit), а не по
+        # 128 фазовым бинам: там короткий транзит размазан. Уточнённый период делает
+        # свёртку для нейросети резче — как у каталожных периодов KOI, на которых она училась
+        if t_mid is None:
+            t_mid, dur_guess = _first_guess(time_v, flux_v, period)
+        fit = transit_fit.measure_transit(time_m, flux_m, period, t_mid, dur_guess)
+        if fit:
+            period = fit["period"]
+            if out.get("bls"):
+                out["bls"].update({"best_period": round(period, 6), "t0": fit["t0"],
+                                   "depth_ppm": fit["depth_ppm"],
+                                   "duration_h": fit["duration_hours"], "refined": True})
+
+        # вход нейросети — ровно как при обучении (lc_common): фаза от первой точки,
+        # 128 бинов с транзитом в центре, локальный вид по длительности из этих бинов
         phase = ((time_v - time_v[0]) / period + 0.5) % 1.0 - 0.5
         binned = bin_folded(phase, flux_v)
         binned, shift = center_on_minimum(binned)
@@ -2703,9 +2847,17 @@ def analyze_lightcurve_sync(target: str, period: Optional[float]) -> Dict[str, A
             "duration_hours": gm.get("duration_hours"),
             "flat_bottom_ratio": linfo["flat_bottom_ratio"],
             "v_shaped": linfo["v_shaped"],
+            "v_shape_marginal": False,
             "secondary_depth_ppm": gm["secondary_depth_ppm"],
             "secondary_significant": gm["secondary_significant"],
+            "measured_on": "folded_bins",
         }
+        if fit:
+            checks.update({k: fit[k] for k in ("depth_ppm", "noise_ppm", "snr", "duration_hours",
+                                               "ingress_hours", "flat_bottom_ratio", "v_shaped",
+                                               "v_shape_marginal", "shape_resolved")})
+            checks["depth_folded_ppm"] = gm["depth_ppm"]
+            checks["measured_on"] = "native_cadence"
 
         # нечёт/чёт: фолдим на 2P — транзиты должны быть одинаковой глубины
         phase2 = ((time_v - time_v[0]) / (2 * period) + 0.5) % 1.0 - 0.5
@@ -2737,12 +2889,19 @@ def analyze_lightcurve_sync(target: str, period: Optional[float]) -> Dict[str, A
             verdict = ["Форма сигнала соответствует планетному транзиту",
                        "Форма сигнала похожа на затменную двойную звезду",
                        "Явного транзита в сложенной кривой не видно"][best]
+            if best == 1 and not (checks["v_shaped"] or checks["secondary_significant"]
+                                  or odd_even["suspicious"]):
+                verdict = ("Нейросеть склоняется к затменной двойной, но классические проверки "
+                           "(форма, вторичное затмение, чёт/нечёт) этого не подтверждают")
 
         notes = []
         if checks["snr"] < 7:
             notes.append("Сигнал слабый — вывод ненадёжен")
         if checks["v_shaped"]:
             notes.append("V-образная форма без плоского дна — признак затменной двойной")
+        elif checks["v_shape_marginal"]:
+            notes.append("Дно узкое — так бывает и у скользящего транзита планеты; "
+                         "само по себе это не признак двойной")
         if checks["secondary_significant"]:
             notes.append("Глубокое вторичное затмение на фазе 0.5 — вероятна затменная двойная")
         if odd_even["suspicious"]:
@@ -2752,6 +2911,7 @@ def analyze_lightcurve_sync(target: str, period: Optional[float]) -> Dict[str, A
 
         out["folded"] = {
             "period_days": period,
+            "fit": fit,
             "scatter": folded_scatter,
             "bins": folded_bins,
             "local_bins": local_bins,
@@ -2764,47 +2924,98 @@ def analyze_lightcurve_sync(target: str, period: Optional[float]) -> Dict[str, A
     return out
 
 
-@api_router.get("/lightcurve")
-async def lightcurve(target: str = Query(..., min_length=2),
-                     period: Optional[float] = Query(None, gt=0)):
-    """Скачивает реальную кривую блеска (TESS/Kepler) и анализирует транзит."""
-    key = f"{norm_name(target)}|{round(period, 6) if period else ''}"
-    dkey = re.sub(r'[^0-9a-zа-яё_.-]', '_', key)   # безопасное имя файла для Windows
+LC_JOBS: Dict[str, Dict[str, Any]] = {}     # id задачи -> {"key", "error", "status", "ts"}
+LC_JOB_TTL = 3600
+LC_DISK = "lightcurve_v2"     # v2: замеры на полной каденции — старые итоги не годятся
+
+
+def _lc_cached(key: str, job_id: str) -> Optional[Dict[str, Any]]:
     now = time.time()
     if key in LC_CACHE and now - LC_CACHE[key][0] < 6 * 3600:
         return LC_CACHE[key][1]
-    disk = disk_cache_read("lightcurve", dkey, 7 * 24 * 3600)
+    disk = disk_cache_read(LC_DISK, job_id, 7 * 24 * 3600)
     if disk:
         LC_CACHE[key] = (now, disk)
-        return disk
-    def _store_late(f):
-        """Даже если клиент отвалился по таймауту — доложим результат в кэши."""
+    return disk
+
+
+def _lc_start(key: str, job_id: str, target: str, period: Optional[float]) -> None:
+    """Запускает анализ в отдельном процессе; итог (или ошибку) кладёт в кэш и LC_JOBS."""
+    if key in LC_INFLIGHT:
+        return
+    job = {"key": key, "status": "running", "error": None, "ts": time.time()}
+    LC_JOBS[job_id] = job
+
+    def _done(f):
         LC_INFLIGHT.pop(key, None)
+        job["ts"] = time.time()
         try:
             res = f.result()
-            if isinstance(res, dict) and "error" not in res:
-                LC_CACHE[key] = (time.time(), res)
-                disk_cache_write("lightcurve", dkey, res)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"lightcurve error: {e}")
+            job.update(status="error", error=(502, f"Ошибка анализа кривой: {e}"))
+            return
+        if isinstance(res, dict) and "error" in res:
+            job.update(status="error", error=(404, res["error"]))
+            return
+        LC_CACHE[key] = (time.time(), res)
+        disk_cache_write(LC_DISK, job_id, res)
+        job["status"] = "done"
 
-    fut = LC_INFLIGHT.get(key)
-    if fut is None:
-        fut = asyncio.get_running_loop().run_in_executor(LC_POOL, analyze_lightcurve_sync, target, period)
-        LC_INFLIGHT[key] = fut
-        fut.add_done_callback(_store_late)
-    try:
-        result = await asyncio.wait_for(asyncio.shield(fut), timeout=420.0)
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail=(
-            "Архив MAST отдаёт данные дольше 7 минут (тяжёлая цель или перегрузка). "
-            "Скачивание продолжается в фоне — повторите запрос чуть позже, ответ будет мгновенным"))
-    except Exception as e:  # noqa: BLE001
-        logger.error(f"lightcurve error: {e}")
-        raise HTTPException(status_code=502, detail=f"Ошибка анализа кривой: {e}")
-    if "error" in result:
-        raise HTTPException(status_code=404, detail=result["error"])
-    return result
+    fut = asyncio.get_running_loop().run_in_executor(LC_POOL, analyze_lightcurve_sync, target, period)
+    LC_INFLIGHT[key] = fut
+    fut.add_done_callback(_done)
+    for jid in [j for j, v in LC_JOBS.items() if time.time() - v["ts"] > LC_JOB_TTL]:
+        LC_JOBS.pop(jid, None)
+
+
+def _lc_pending(job_id: str) -> JSONResponse:
+    return JSONResponse({"status": "running", "job_id": job_id,
+                         "poll": f"/api/lightcurve/jobs/{job_id}"}, status_code=202)
+
+
+@api_router.get("/lightcurve")
+async def lightcurve(target: str = Query(..., min_length=2),
+                     period: Optional[float] = Query(None, gt=0)):
+    """Скачивает реальную кривую блеска (TESS/Kepler) и анализирует транзит.
+
+    Готовый результат (из кэша) — сразу 200. Иначе анализ запускается в фоне и ответ —
+    202 с id задачи: страница опрашивает /lightcurve/jobs/{id}. Так запрос не висит
+    минутами и не упирается в таймаут прокси (Cloudflare рвёт его через ~100 с).
+    """
+    key = f"{norm_name(target)}|{round(period, 6) if period else ''}"
+    job_id = re.sub(r'[^0-9a-zа-яё_.-]', '_', key)   # безопасное имя файла для Windows
+    cached = _lc_cached(key, job_id)
+    if cached:
+        return cached
+    job = LC_JOBS.get(job_id)
+    if job and job["status"] == "error" and time.time() - job["ts"] < 60:
+        code, detail = job["error"]          # свежая ошибка — не перезапускаем сразу
+        raise HTTPException(status_code=code, detail=detail)
+    _lc_start(key, job_id, target, period)
+    return _lc_pending(job_id)
+
+
+@api_router.get("/lightcurve/jobs/{job_id}")
+async def lightcurve_job(job_id: str):
+    """Состояние анализа: 202 — ещё идёт, 200 — результат, 404/502 — ошибка."""
+    if not re.fullmatch(r'[0-9a-zа-яё_.-]{1,120}', job_id):
+        raise HTTPException(status_code=404, detail="Задача не найдена")
+    job = LC_JOBS.get(job_id)
+    if job is None:
+        cached = disk_cache_read(LC_DISK, job_id, 7 * 24 * 3600)
+        if cached:
+            return cached
+        raise HTTPException(status_code=404, detail="Задача не найдена — запустите анализ заново")
+    if job["status"] == "running":
+        return _lc_pending(job_id)
+    if job["status"] == "error":
+        code, detail = job["error"]
+        raise HTTPException(status_code=code, detail=detail)
+    done = _lc_cached(job["key"], job_id)
+    if done is None:
+        raise HTTPException(status_code=404, detail="Результат устарел — запустите анализ заново")
+    return done
 
 
 app.include_router(api_router)

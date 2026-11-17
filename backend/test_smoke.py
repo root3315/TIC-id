@@ -51,6 +51,19 @@ def test_kopparapu_sun():
     hz = server.kopparapu_hz(5772.0, 1.0)
     assert 0.9 < hz["inner_conservative"] < 1.05
     assert 1.5 < hz["outer_conservative"] < 1.8
+    assert hz["teff_clamped"] is False
+
+
+def test_kopparapu_erratum_coefficients():
+    # Kopparapu et al. 2013, исправление (ApJ 770, 82): при Teff = 5780 K Seff = Seff_sun
+    hz = server.kopparapu_hz(5780.0, 1.0)
+    assert hz["inner_conservative"] == round(1 / 1.0512 ** 0.5, 4)
+    assert hz["outer_optimistic"] == round(1 / 0.3179 ** 0.5, 4)
+
+
+def test_kopparapu_flags_clamped_teff():
+    hz = server.kopparapu_hz(2300.0, 0.001)
+    assert hz["teff_clamped"] is True and hz["teff_used"] == 2600.0
 
 
 def test_esi_earth_is_one():
@@ -177,3 +190,54 @@ def test_fnum():
     assert server.fnum("3.14") == pytest.approx(3.14)
     assert server.fnum(None) is None
     assert server.fnum(float("nan")) is None
+
+
+# ---------- устаревший каталог ----------
+
+def test_stale_catalog_is_served_when_nasa_fails(monkeypatch, tmp_path):
+    import asyncio
+    import json
+    import time
+
+    old_ts = time.time() - 3 * 24 * 3600
+    cache = tmp_path / "catalog.json"
+    cache.write_text(json.dumps({"ts": old_ts, "rows": [
+        {"pl_name": "Kepler-186 f", "hostname": "Kepler-186", "ra": 1.0, "dec": 2.0}]}),
+        encoding="utf-8")
+
+    async def no_tap(*a, **k):
+        return None
+
+    monkeypatch.setattr(server, "CATALOG_DISK_CACHE", cache)
+    monkeypatch.setattr(server, "tap_query", no_tap)
+    monkeypatch.setattr(server, "CATALOG", [])
+    monkeypatch.setattr(server, "CATALOG_RETRY_AT", 0.0)
+    monkeypatch.setattr(server, "CATALOG_LOCK", asyncio.Lock())
+
+    assert asyncio.run(server.ensure_catalog()) is True
+    assert abs(server.CATALOG_DATA_TS - old_ts) < 1      # возраст — от файла, а не от загрузки
+    stats = asyncio.run(server.stats())
+    assert stats["stale"] is True and stats["age_hours"] >= 71
+
+
+# ---------- задачи анализа кривых ----------
+
+def test_lightcurve_job_rejects_paths_and_unknown_ids():
+    import asyncio
+    from fastapi import HTTPException
+
+    for bad in ("..\..\secrets", "nope_nothing_here"):
+        with pytest.raises(HTTPException) as e:
+            asyncio.run(server.lightcurve_job(bad))
+        assert e.value.status_code == 404
+
+
+def test_lightcurve_job_reports_running_then_result(monkeypatch):
+    import asyncio
+
+    server.LC_JOBS["kepler-10_"] = {"key": "kepler10|", "status": "running", "error": None, "ts": 0}
+    assert asyncio.run(server.lightcurve_job("kepler-10_")).status_code == 202
+    server.LC_JOBS["kepler-10_"]["status"] = "done"
+    monkeypatch.setitem(server.LC_CACHE, "kepler10|", (9e18, {"target": "Kepler-10"}))
+    assert asyncio.run(server.lightcurve_job("kepler-10_")) == {"target": "Kepler-10"}
+    server.LC_JOBS.pop("kepler-10_")

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, Trophy, Search, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { suggest, comparePlanets } from "@/lib/api";
-import { fmt, scoreColor, methodRu } from "@/lib/format";
+import { fmt, fmtLy, scoreColor, methodRu } from "@/lib/format";
 import PlanetVisual from "@/components/PlanetVisual";
 import { useT } from "@/lib/i18n";
 
@@ -30,7 +30,7 @@ const ROWS = [
   { label: "Год длится", en: "Year length", unit: "сут", unit_en: "days", d: 1, better: null, get: (p) => p.orbital_params?.period },
   { label: "Орбита", en: "Orbit", unit: "а.е.", unit_en: "AU", d: 3, better: null, get: (p) => p.orbital_params?.semi_major_axis },
   { label: "Эксцентриситет", en: "Eccentricity", unit: "", unit_en: "", d: 3, better: "low", get: (p) => p.orbital_params?.eccentricity },
-  { label: "Расстояние до нас", en: "Distance to us", unit: "св. лет", unit_en: "ly", d: 0, better: "low", get: (p) => p.derived?.distance_ly },
+  { label: "Расстояние до нас", en: "Distance to us", unit: "св. лет", unit_en: "ly", format: fmtLy, better: "low", get: (p) => p.derived?.distance_ly },
   { label: "Температура звезды", en: "Star temperature", unit: "K", unit_en: "K", d: 0, better: null, get: (p) => p.host_star?.temperature },
   { label: "Открыта", en: "Discovered", unit: "", unit_en: "", d: 0, better: null, get: (p) => p.discovery_info?.discovery_year },
 ];
@@ -215,10 +215,10 @@ const CompareDialog = ({ basePlanet, children }) => {
                       <tr key={row.label} className="border-t border-white/5">
                         <td className="py-2 px-4 text-slate-400">{t(row.label, row.en)}{row.unit ? `, ${t(row.unit, row.unit_en)}` : ""}</td>
                         <td className={`py-2 px-4 text-right tabular ${w === 1 ? "text-emerald-200 font-medium" : "text-white"}`}>
-                          {w === 1 && dot}{fmt(v1, row.d)}
+                          {w === 1 && dot}{row.format ? row.format(v1) : fmt(v1, row.d)}
                         </td>
                         <td className={`py-2 px-4 text-right tabular ${w === 2 ? "text-emerald-200 font-medium" : "text-white"}`}>
-                          {w === 2 && dot}{fmt(v2, row.d)}
+                          {w === 2 && dot}{row.format ? row.format(v2) : fmt(v2, row.d)}
                         </td>
                       </tr>
                     );

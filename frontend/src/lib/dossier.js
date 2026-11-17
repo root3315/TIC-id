@@ -4,7 +4,7 @@
 // рекомендации) приходят с бэкенда по-русски — в EN остаются как есть.
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
-import { fmt, planetClass, densityOf, tempZone, scoreColor } from "./format";
+import { fmt, fmtLy, planetClass, densityOf, tempZone, scoreColor } from "./format";
 
 const esc = (s) => String(s ?? "").replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
 const has = (v) => v != null && v !== "" && v !== "—";
@@ -35,8 +35,9 @@ export async function exportPlanetDossier(data, t) {
   const catText = t(hab.category_ru || "", hab.category || "") || (cls ? cls.label : "");
   const descr = (data.wikipedia && data.wikipedia.extract) || data.summary || "";
 
-  const hzMap = { optimistic: t("оптимистичная зона", "optimistic HZ"), conservative: t("консервативная зона", "conservative HZ"), inside: t("ближе зоны", "inside HZ"), outside: t("за пределами зоны", "outside HZ") };
-  const tidalMap = { likely: t("вероятен", "likely"), unlikely: t("маловероятен", "unlikely"), locked: t("захвачена", "locked") };
+  // значения — как их отдаёт API (compute_derived: hz_position, tidal_locking)
+  const hzMap = { optimistic: t("оптимистичная зона", "optimistic HZ"), conservative: t("консервативная зона", "conservative HZ"), inner: t("ближе зоны", "inside the HZ inner edge"), outer: t("дальше зоны", "beyond the HZ outer edge") };
+  const tidalMap = { likely: t("вероятен", "likely"), possible: t("возможен", "possible"), unlikely: t("маловероятен", "unlikely") };
 
   // ── строительные блоки ────────────────────────────────────────────
   const card = (inner) =>
@@ -156,7 +157,7 @@ export async function exportPlanetDossier(data, t) {
         [t("Масса", "Mass"), has(phys.mass) ? fmt(phys.mass, 2) + " M⊕" : null],
         [t("Температура", "Temp."), has(teq) ? fmt(teq, 0) + " K" : null],
         [t("Период", "Period"), has(der.year_length_days) ? fmt(der.year_length_days, 0) + " " + t("сут", "d") : null],
-        [t("Расстояние", "Distance"), has(der.distance_ly) ? fmt(der.distance_ly, 0) + " " + t("св. лет", "ly") : null],
+        [t("Расстояние", "Distance"), has(der.distance_ly) ? fmtLy(der.distance_ly) + " " + t("св. лет", "ly") : null],
       ].filter(([, v]) => has(v)).map(([l, v]) =>
         `<div style="flex:1;min-width:120px;padding:11px;background:${C.panel};border-radius:11px;border:1px solid ${C.line};text-align:center;">
            <div style="font-size:16px;font-weight:700;color:${C.text};">${esc(v)}</div>
@@ -251,7 +252,7 @@ export async function exportPlanetDossier(data, t) {
           [t("Возраст", "Age"), has(star.age) ? `${fmt(star.age, 1)} ${t("млрд лет", "Gyr")}` : null],
           [t("Металличность", "Metallicity"), has(star.metallicity) ? `${fmt(star.metallicity, 2)} [Fe/H]` : null],
           [t("log g", "log g"), has(star.gravity_log) ? fmt(star.gravity_log, 2) : null],
-          [t("Расстояние", "Distance"), has(der.distance_ly) ? `${fmt(der.distance_ly, 0)} ${t("св. лет", "ly")} · ${fmt(star.distance, 1)} ${t("пк", "pc")}` : null],
+          [t("Расстояние", "Distance"), has(der.distance_ly) ? `${fmtLy(der.distance_ly)} ${t("св. лет", "ly")} · ${fmt(star.distance, 1)} ${t("пк", "pc")}` : null],
           [t("Параллакс", "Parallax"), has(star.parallax_mas) ? `${fmt(star.parallax_mas, 3)} ${t("мсд", "mas")}` : null],
           [t("Собств. движение", "Proper motion"), has(star.proper_motion) ? `${fmt(star.proper_motion, 1)} ${t("мсд/год", "mas/yr")}` : null],
         ])

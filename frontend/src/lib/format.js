@@ -35,6 +35,13 @@ export const fmtErr = (v, err, digits = 2) => {
   return `${base} +${plus}/−${minus}`;
 };
 
+// Световые годы: до 10 — с десятыми (Проксима — 4,2, а не «4»), дальше — целыми
+export const fmtLy = (ly) => fmt(ly, Number(ly) < 10 ? 1 : 0);
+
+// Масса из pscomppars бывает оценкой по радиусу (≈) или нижним пределом M sin i (≥)
+const MASS_MARK = { estimated: "≈", minimum: "≥" };
+export const massMark = (kind) => MASS_MARK[kind] || "";
+
 export const kelvinToC = (k) => (k == null ? null : k - 273.15);
 
 export const METHOD_RU = {

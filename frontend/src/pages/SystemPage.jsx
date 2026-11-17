@@ -2,10 +2,10 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Database, Globe, MapPin, Orbit } from "lucide-react";
 import { getSystem } from "@/lib/api";
-import { decToDms, fmt, fmtSig, methodRu, plural, raToHms, scoreColor, starColor } from "@/lib/format";
+import { decToDms, fmt, fmtLy, fmtSig, massMark, methodRu, plural, raToHms, scoreColor, starColor } from "@/lib/format";
 import { useT } from "@/lib/i18n";
 import { systemLede } from "@/lib/systemStory";
-import { earthEquivalentAu, inHabitableZone } from "@/lib/systemScale";
+import { earthEquivalentAu, habitableZoneKind } from "@/lib/systemScale";
 import PlanetVisual from "@/components/PlanetVisual";
 import SystemStrip from "@/components/SystemStrip";
 import SystemOrbits from "@/components/SystemOrbits";
@@ -15,8 +15,15 @@ import SystemOrbits from "@/components/SystemOrbits";
 const MUNINN_URL = (process.env.REACT_APP_MUNINN_URL || "https://muninn.mydevbox.xyz").replace(/\/$/, "");
 const LY_PER_PC = 3.26156;
 const VIEWS = [["scale", "В масштабе", "To scale"], ["orbits", "Вид сверху", "Top view"]];
+// Подписи зон для тегов планет: какая именно зона обитаемости
+const HZ_KIND = {
+  conservative: ["консервативная зона обитаемости", "conservative habitable zone"],
+  optimistic: ["оптимистичная зона обитаемости", "optimistic habitable zone"],
+};
 const WIDE = "(min-width: 1024px)";
 const HZ_TAG = { color: "#6ee7b7", borderColor: "rgba(52,211,153,.45)", background: "rgba(52,211,153,.10)" };
+
+const massText = (p) => `${massMark(p.mass_kind)}${fmt(p.mass_earth, p.mass_earth < 10 ? 2 : 0)}`;
 
 const num = (v) => (v === null || v === "" || v === undefined ? NaN : Number(v));
 const inSky = (ra, dec) => Number.isFinite(ra) && Number.isFinite(dec) && ra >= 0 && ra < 360 && Math.abs(dec) <= 90;
@@ -177,13 +184,16 @@ const SystemPage = () => {
   const [active, setActive] = useState(null);
 
   useEffect(() => {
-    if (!host && !inSky(ra, dec)) {
+    // Muninn присылает имя звезды и позицию: сначала ищем по имени (у тесных пар,
+    // как HD 41004 A и B, ближайшая по позиции звезда может оказаться соседкой)
+    const byName = host || skyName;
+    if (!byName && !inSky(ra, dec)) {
       setState({ status: "invalid", data: null });
       return undefined;
     }
     let cancelled = false;
     setState({ status: "loading", data: null });
-    getSystem(host ? { host, ...(inSky(ra, dec) && { ra, dec }) } : { ra, dec })
+    getSystem(byName ? { host: byName, ...(inSky(ra, dec) && { ra, dec }) } : { ra, dec })
       .then((data) => !cancelled && setState({ status: "ready", data }))
       .catch((e) => !cancelled && setState({
         status: e.response?.status === 404 ? (inSky(ra, dec) ? "empty" : "notfound") : "error", data: null,
@@ -191,7 +201,7 @@ const SystemPage = () => {
     return () => {
       cancelled = true;
     };
-  }, [host, ra, dec]);
+  }, [host, skyName, ra, dec]);
 
   const back = fromMuninn && (
     <a href={muninnFieldUrl(ra, dec, skyName)} className="tag tag-link tag-word" data-testid="back-to-muninn">
@@ -212,7 +222,8 @@ const SystemPage = () => {
   const catalogName = skyName && skyName.toLowerCase() !== star.name.toLowerCase() ? star.name : null;
   const luminosity = Number.isFinite(star.luminosity_log) ? 10 ** star.luminosity_log : null;
   const placed = planets.filter((p) => p.a_au > 0);
-  const habitableCount = planets.filter((p) => inHabitableZone(p.a_au, hz)).length;
+  const conservativeCount = planets.filter((p) => habitableZoneKind(p.a_au, hz) === "conservative").length;
+  const habitableCount = planets.filter((p) => habitableZoneKind(p.a_au, hz)).length;
   const chartEdge = placed.length ? Math.max(...placed.map((p) => p.a_au * (1 + (p.eccentricity || 0)))) * 1.12 : 0;
   const hzBeyondScene = hz && chartEdge && hz.inner_optimistic > chartEdge;
   const insideMercury = chartEdge > 0 && chartEdge < 0.3;
@@ -224,7 +235,7 @@ const SystemPage = () => {
     star.radius && [t("Радиус", "Radius"), `${fmt(star.radius, star.radius < 10 ? 2 : 1)} R☉`],
     star.mass && [t("Масса", "Mass"), `${fmt(star.mass, 2)} M☉`],
     luminosity && [t("Светимость", "Luminosity"), `${luminosity >= 10 ? fmt(luminosity, 0) : fmtSig(luminosity, 2)} L☉`],
-    star.distance_pc && [t("До нас", "Distance"), `${fmt(star.distance_pc * LY_PER_PC, 0)} ${t("св. лет", "ly")}`],
+    star.distance_pc && [t("До нас", "Distance"), `${fmtLy(star.distance_pc * LY_PER_PC)} ${t("св. лет", "ly")}`],
   ].filter(Boolean);
 
   return (
@@ -248,9 +259,11 @@ const SystemPage = () => {
                 {habitableCount > 0 && (
                   <span className="tag tag-word" style={HZ_TAG}>
                     <i className="dot" style={{ background: "#34d399" }} />
-                    {habitableCount === planets.length
-                      ? t("в зоне обитаемости", "in the habitable zone")
-                      : t(`${habitableCount} в зоне обитаемости`, `${habitableCount} in the habitable zone`)}
+                    {conservativeCount > 0
+                      ? t(`${conservativeCount} в консервативной зоне обитаемости`, `${conservativeCount} in the conservative habitable zone`)
+                        + (habitableCount > conservativeCount
+                          ? t(`, ещё ${habitableCount - conservativeCount} в оптимистичной`, `, ${habitableCount - conservativeCount} more in the optimistic one`) : "")
+                      : t(`${habitableCount} только в оптимистичной зоне обитаемости`, `${habitableCount} only in the optimistic habitable zone`)}
                   </span>
                 )}
               </div>
@@ -280,12 +293,12 @@ const SystemPage = () => {
         {placed.length > 0 && (
           <section className="panel rounded-xl p-6" aria-labelledby="scale-h">
             <SectionHead icon={Orbit}
-                         title={<span id="scale-h">{t("Система в масштабе", "The system to scale")}</span>}
+                         title={<span id="scale-h">{t("Орбиты в масштабе", "Orbits to scale")}</span>}
                          hint={view === "scale"
-                           ? t("От поверхности звезды наружу, каждое деление в 10 раз дальше — нажмите на планету, чтобы открыть её",
-                             "Outward from the star's surface, each mark ten times farther — click a planet to open it")
-                           : t("Вид сверху в линейном масштабе: скорости по реальным периодам, повороты орбит условные",
-                             "Top view on a linear scale: speeds follow the real periods, orbit orientations are arbitrary")}>
+                           ? t("От поверхности звезды наружу, каждое деление в 10 раз дальше; планеты нарисованы крупнее масштаба — нажмите на планету, чтобы открыть её",
+                             "Outward from the star's surface, each mark ten times farther; planets are drawn larger than scale — click a planet to open it")
+                           : t("Вид сверху в линейном масштабе: скорости по реальным периодам, повороты орбит условные, планеты увеличены",
+                             "Top view on a linear scale: speeds follow the real periods, orbit orientations are arbitrary, planets enlarged")}>
               <div className="tabs-rule flex gap-5" role="group" aria-label={t("Как показать систему", "How to show the system")}>
                 {VIEWS.map(([key, ru, en]) => (
                   <button key={key} type="button" className="tab-trigger sys-tab text-sm pb-2"
@@ -305,6 +318,9 @@ const SystemPage = () => {
                 ? t(`Зона обитаемости лежит дальше, в ${fmtSig(hz.inner_conservative, 2)}–${fmtSig(hz.outer_conservative, 2)} а.е.`,
                   `The habitable zone lies farther out, at ${fmtSig(hz.inner_conservative, 2)}–${fmtSig(hz.outer_conservative, 2)} AU.`)
                 : t("Зелёные линии — границы зоны обитаемости.", "Green lines bound the habitable zone."))}
+              {hz?.teff_clamped &&
+                ` ${t(`Формула зоны обитаемости верна для звёзд 2600–7200 K, поэтому зона посчитана для ${fmt(hz.teff_used, 0)} K.`,
+                  `The habitable-zone formula holds for 2600–7200 K stars, so the zone is computed for ${fmt(hz.teff_used, 0)} K.`)}`}
               {planets.some((p) => p.a_estimated) &&
                 ` ${t("Знак ≈ — расстояние по третьему закону Кеплера.", "≈ marks a distance from Kepler's third law.")}`}
             </div>
@@ -330,15 +346,15 @@ const SystemPage = () => {
                         <span className="tag tabular"><i className="dot" style={{ background: scoreColor(p.habitability) }} />{fmt(p.habitability, 0)}</span>
                       )}
                     </span>
-                    {inHabitableZone(p.a_au, hz) && (
-                      <span className="tag tag-word mt-1" style={HZ_TAG}>{t("в зоне обитаемости", "habitable zone")}</span>
+                    {habitableZoneKind(p.a_au, hz) && (
+                      <span className="tag tag-word mt-1" style={HZ_TAG}>{t(...HZ_KIND[habitableZoneKind(p.a_au, hz)])}</span>
                     )}
                     <span className="block text-[13px] tabular mt-1.5" style={{ color: "var(--ink-2)" }}>
                       {[
                         `${p.a_estimated ? "≈" : ""}${fmtSig(p.a_au, 3)} ${t("а.е.", "AU")}`,
                         p.period_days && `${fmt(p.period_days, p.period_days < 10 ? 2 : 0)} ${t("сут", "d")}`,
                         p.radius_earth && `${fmt(p.radius_earth, 2)} R⊕`,
-                        p.mass_earth && `${fmt(p.mass_earth, p.mass_earth < 10 ? 2 : 0)} M⊕`,
+                        p.mass_earth && `${massText(p)} M⊕`,
                         p.teq_k && `${fmt(p.teq_k, 0)} K`,
                       ].filter(Boolean).join(" · ")}
                     </span>
@@ -362,7 +378,7 @@ const SystemPage = () => {
               </thead>
               <tbody>
                 {planets.map((p) => {
-                  const habitable = inHabitableZone(p.a_au, hz);
+                  const habitable = habitableZoneKind(p.a_au, hz);
                   return (
                     <tr key={p.name}
                         onClick={() => open(p.name)}
@@ -376,7 +392,7 @@ const SystemPage = () => {
                           <PlanetVisual radius={p.radius_earth} teq={p.teq_k} mass={p.mass_earth} size={22} />
                           {p.name}
                           {habitable && (
-                            <span className="tag tag-word" style={HZ_TAG}>{t("в зоне обитаемости", "habitable zone")}</span>
+                            <span className="tag tag-word" style={HZ_TAG}>{t(...HZ_KIND[habitable])}</span>
                           )}
                         </Link>
                         <span className="block text-xs mt-0.5 pl-[32px]" style={{ color: "var(--ink-4)" }}>
@@ -386,7 +402,7 @@ const SystemPage = () => {
                       <td className="py-2.5 pr-4 tabular">{p.a_estimated ? "≈" : ""}{fmtSig(p.a_au, 3)}</td>
                       <td className="py-2.5 pr-4 tabular">{fmt(p.period_days, p.period_days < 10 ? 2 : 0)}</td>
                       <td className="py-2.5 pr-4 tabular">{fmt(p.radius_earth, 2)}</td>
-                      <td className="py-2.5 pr-4 tabular">{fmt(p.mass_earth, p.mass_earth < 10 ? 2 : 0)}</td>
+                      <td className="py-2.5 pr-4 tabular">{p.mass_earth != null ? massText(p) : "—"}</td>
                       <td className="py-2.5 pr-4 tabular">{fmt(p.teq_k, 0)}</td>
                       <td className="py-2.5 text-right">
                         {p.habitability != null ? (
@@ -405,6 +421,12 @@ const SystemPage = () => {
           <Database className="w-3.5 h-3.5" aria-hidden="true" />
           {t("Данные: NASA Exoplanet Archive (pscomppars). Обитаемость — оценка ExoVision по размеру, температуре и орбите, из 100.",
             "Data: NASA Exoplanet Archive (pscomppars). Habitability is ExoVision's 0–100 estimate from size, temperature and orbit.")}
+          {planets.some((p) => p.mass_kind === "estimated" || p.mass_kind === "minimum") && ` ${t(
+            "Масса: ≈ — оценка по радиусу (не измерена), ≥ — нижний предел M sin i.",
+            "Mass: ≈ is estimated from the radius (not measured), ≥ is the M sin i lower limit.")}`}
+          {star.params_from && planets.length > 1 && ` ${t(
+            `Параметры звезды — из одной записи архива (${star.params_from}).`,
+            `Star parameters come from one archive record (${star.params_from}).`)}`}
         </p>
       </div>
     </div>

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { Weight, Gauge, Thermometer, Circle, Rocket, Sun, Layers, Wind, PersonStanding } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { fmt, fmtErr, planetClass, densityOf } from "@/lib/format";
+import { fmt, fmtErr, massMark, planetClass, densityOf } from "@/lib/format";
 import { useT } from "@/lib/i18n";
 
 // Иконка здесь — опознавательный знак параметра, а не украшение:
@@ -167,10 +167,14 @@ const PhysicalTab = ({ data }) => {
       {/* Основные измерения */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <ParamCard icon={Weight} label={t("Масса", "Mass")}
-          value={phys.mass != null ? fmtErr(phys.mass, phys.mass_err) : null}
+          value={phys.mass != null ? `${massMark(phys.mass_kind)}${fmtErr(phys.mass, phys.mass_err)}` : null}
           unit={t("M⊕ (масс Земли)", "M⊕ (Earth masses)")}
           hint={derived.mass_unreliable
             ? t("⚠ верхний предел из архива — реальная масса, вероятно, заметно меньше", "⚠ upper limit from the archive — the real mass is probably noticeably lower")
+            : phys.mass_kind === "estimated"
+            ? t("оценка по радиусу (соотношение масса — радиус), не измерение", "estimated from the radius (mass–radius relation), not measured")
+            : phys.mass_kind === "minimum"
+            ? t("нижний предел M sin i: наклон орбиты неизвестен", "M sin i lower limit: the orbit's tilt is unknown")
             : phys.mass_jupiter != null
               ? `${fmt(phys.mass_jupiter, 3)} ${t("массы Юпитера", "Jupiter masses")}${phys.mass_provenance ? ` · ${phys.mass_provenance}` : ""}`
               : null} />

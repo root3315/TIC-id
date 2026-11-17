@@ -9,6 +9,9 @@ import math
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+# Звёздные величины, которые в pscomppars зависят от выбранной статьи
+STELLAR_KEYS = ("st_teff", "st_rad", "st_mass", "st_lum", "st_spectype")
+
 STAR_FIELDS = {
     "st_teff": "temperature",
     "st_rad": "radius",
@@ -39,6 +42,28 @@ def angular_sep_arcsec(ra1: float, dec1: float, ra2: float, dec2: float) -> floa
     return math.degrees(2 * math.asin(min(1.0, math.sqrt(h)))) * 3600
 
 
+def _filled(v) -> bool:
+    return v not in (None, "") and not (isinstance(v, float) and math.isnan(v))
+
+
+def stellar_row(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Строка, из которой берём ВСЕ параметры звезды.
+
+    В pscomppars у каждой планеты свой набор звёздных величин (из своей статьи), и
+    у планет одной звезды Teff, R и M могут не совпадать. Смешивать поля из разных
+    строк нельзя — получится звезда, которой нет ни в одной статье. Берём одну
+    строку: где заполнено больше звёздных полей, при равенстве — первую по имени.
+    """
+    return max(sorted(rows, key=lambda r: r.get("pl_name") or ""),
+               key=lambda r: sum(_filled(r.get(k)) for k in STELLAR_KEYS))
+
+
+def planet_name_prefix(pl_name: Optional[str]) -> str:
+    """Имя звезды, как его пишут в имени планеты: «Kepler-90 b» → «kepler90»."""
+    parts = (pl_name or "").rsplit(" ", 1)
+    return _norm(parts[0]) if len(parts) == 2 else ""
+
+
 def build_host_index(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Звёзды с планетами: одна запись на хост, планеты сгруппированы."""
     hosts: Dict[str, Dict[str, Any]] = {}
@@ -50,6 +75,10 @@ def build_host_index(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         host = hosts.setdefault(name, {"hostname": name, "ra": ra, "dec": dec,
                                        "key": _norm(name), "planets": []})
         host["planets"].append(r)
+    for host in hosts.values():
+        host["stellar"] = stellar_row(host["planets"])
+        # другие имена звезды из имён планет: у KOI-351 планеты зовутся Kepler-90 b…
+        host["aliases"] = {planet_name_prefix(p.get("pl_name")) for p in host["planets"]} - {"", host["key"]}
     return list(hosts.values())
 
 
@@ -66,8 +95,24 @@ def nearest_host(hosts: List[Dict[str, Any]], ra: float, dec: float,
 
 
 def find_host_by_name(hosts: List[Dict[str, Any]], name: str) -> Optional[Dict[str, Any]]:
+    """Звезда по имени из архива, а если такого нет — по имени из имён её планет."""
     key = _norm(name)
-    return next((h for h in hosts if h["key"] == key), None) if key else None
+    if not key:
+        return None
+    return (next((h for h in hosts if h["key"] == key), None)
+            or next((h for h in hosts if key in h.get("aliases", ())), None))
+
+
+def mass_kind(provenance: Optional[str]) -> Optional[str]:
+    """Что за масса в pl_bmasse: измерена, нижний предел (M sin i) или оценка по радиусу."""
+    prov = (provenance or "").lower()
+    if not prov:
+        return None
+    if "m-r" in prov or "relation" in prov:
+        return "estimated"
+    if "sin" in prov and "/sin" not in prov:
+        return "minimum"
+    return "measured"
 
 
 def orbit_axis_au(a: Optional[float], period_days: Optional[float],
@@ -81,15 +126,18 @@ def orbit_axis_au(a: Optional[float], period_days: Optional[float],
 
 
 def _first(rows: List[Dict[str, Any]], key: str):
-    return next((r[key] for r in rows if r.get(key) not in (None, "")), None)
+    return next((r[key] for r in rows if _filled(r.get(key))), None)
 
 
 def system_payload(host: Dict[str, Any], hz: Optional[dict],
                    match_arcsec: Optional[float] = None) -> Dict[str, Any]:
     rows = host["planets"]
-    star = {"name": host["hostname"], "ra": host["ra"], "dec": host["dec"]}
+    src_row = host.get("stellar") or stellar_row(rows)
+    star = {"name": host["hostname"], "ra": host["ra"], "dec": host["dec"],
+            "params_from": src_row.get("pl_name")}
     for src, dst in STAR_FIELDS.items():
-        v = _first(rows, src)
+        # звёздные величины — из одной строки; расстояние и число звёзд общие для системы
+        v = src_row.get(src) if src in STELLAR_KEYS else _first(rows, src)
         star[dst] = v if src == "st_spectype" else _num(v)
     planets = []
     for r in rows:
@@ -103,6 +151,7 @@ def system_payload(host: Dict[str, Any], hz: Optional[dict],
             "eccentricity": _num(r.get("pl_orbeccen")),
             "radius_earth": _num(r.get("pl_rade")),
             "mass_earth": _num(r.get("pl_bmasse")),
+            "mass_kind": mass_kind(r.get("pl_bmassprov")),
             "teq_k": _num(r.get("pl_eqt")),
             "habitability": r.get("_hab"),
             "disc_year": r.get("disc_year"),

@@ -184,3 +184,15 @@ def test_choose_files_kepler_long_cadence_in_order():
     ("KIC 11904151", "kplr011904151"), ("EPIC 201367065", "ktwo201367065"), ("Kepler-10", None)])
 def test_exact_target_name(target, expected):
     assert M._exact_target_name(target) == expected
+
+
+def test_prepare_keeps_transit_bottoms_when_asked():
+    # глубокий транзит глубже 6σ общего разброса: обычная чистка срезает дно
+    t = np.arange(0, 30, 2 / 1440)
+    f = 1 + np.random.default_rng(3).normal(0, 4e-4, t.size)
+    f[(t % 3.0) < 0.07] -= 0.03
+    f[100] += 0.05                                  # настоящий выброс вверх
+    lc = L.LightCurve(t, f, {})
+    kept = L.prepare([lc], clip_dips=False)
+    assert kept.flux.min() < 0.975 and kept.flux.max() < 1.01
+    assert len(L.prepare([lc])) <= len(kept)

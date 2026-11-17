@@ -552,6 +552,8 @@ const SearchPage = () => {
                       <span className="hidden sm:inline" style={{ color: "var(--ink-4)" }}>/</span>
                       <span className="hidden sm:inline" style={{ color: "var(--ink-4)" }}>
                         {new Date(stats.updated_at).toLocaleDateString("ru-RU")}
+                        {stats.stale && t(` · архив не отвечает, данным ${fmt(stats.age_hours / 24, 1)} сут`,
+                          ` · archive not answering, data ${fmt(stats.age_hours / 24, 1)} d old`)}
                       </span>
                     </>
                   )}

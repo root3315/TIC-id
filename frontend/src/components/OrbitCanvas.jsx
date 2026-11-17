@@ -1,13 +1,20 @@
-import { useEffect, useRef } from "react";
-import { starColor } from "@/lib/format";
+import { useEffect, useRef, useState } from "react";
+import { fmt, starColor } from "@/lib/format";
+import { useT } from "@/lib/i18n";
+import { AU_PER_SOLAR_RADIUS } from "@/lib/systemScale";
+
+const MIN_STAR_PX = 2.5;   // мельче звезду не разглядеть — рисуем крупнее и говорим об этом
 
 /**
  * Интерактивная анимация орбиты: планета движется по кеплеровской орбите
  * вокруг звезды, зелёным показана зона обитаемости (если рассчитана).
+ * Звезда — в том же масштабе, что и орбита (starRadius в R☉).
  */
-const OrbitCanvas = ({ a, e = 0, hz, starTeff, planetName, height = 460 }) => {
+const OrbitCanvas = ({ a, e = 0, hz, starTeff, starRadius, planetName, height = 460 }) => {
+  const t = useT();
   const canvasRef = useRef(null);
   const wrapRef = useRef(null);
+  const [starEnlargedBy, setStarEnlargedBy] = useState(null);
 
   useEffect(() => {
     if (!a || a <= 0) return undefined;
@@ -34,6 +41,17 @@ const OrbitCanvas = ({ a, e = 0, hz, starTeff, planetName, height = 460 }) => {
       canvas.style.width = `${W}px`;
       canvas.style.height = `${H}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+
+    const starAu = starRadius > 0 ? starRadius * AU_PER_SOLAR_RADIUS : null;
+    let lastEnlarged = null;
+    const reportStarSize = (truePx) => {
+      // во сколько раз звезда нарисована крупнее масштаба (null — в масштабе)
+      const by = truePx == null ? 0 : truePx < MIN_STAR_PX ? MIN_STAR_PX / truePx : null;
+      if (by !== lastEnlarged) {
+        lastEnlarged = by;
+        setStarEnlargedBy(by);
+      }
     };
 
     const rOf = (th) => (a * (1 - ecc * ecc)) / (1 + ecc * Math.cos(th));
@@ -67,7 +85,7 @@ const OrbitCanvas = ({ a, e = 0, hz, starTeff, planetName, height = 460 }) => {
         ctx.beginPath();
         ctx.arc(cx, cy, m * scale, 0, Math.PI * 2);
         ctx.stroke();
-        ctx.fillText(`${parseFloat(m.toPrecision(2))} а.е.`, cx + m * scale * 0.7071 + 4, cy - m * scale * 0.7071 - 4);
+        ctx.fillText(`${fmt(parseFloat(m.toPrecision(2)), 3)} ${t("а.е.", "AU")}`, cx + m * scale * 0.7071 + 4, cy - m * scale * 0.7071 - 4);
       }
       ctx.setLineDash([]);
 
@@ -84,14 +102,18 @@ const OrbitCanvas = ({ a, e = 0, hz, starTeff, planetName, height = 460 }) => {
       ctx.lineWidth = 1.4;
       ctx.stroke();
 
-      // Звезда с ореолом
-      const starR = Math.max(7, Math.min(16, 10 * scale * 0.05 + 8));
-      const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, starR * 3.4);
+      // Звезда в масштабе орбиты (не мельче MIN_STAR_PX), ореол не заходит на орбиту
+      const truePx = starAu ? starAu * scale : null;
+      reportStarSize(truePx);
+      const starR = Math.max(MIN_STAR_PX, truePx || 0);
+      const periPx = a * (1 - ecc) * scale;
+      const glowR = Math.max(starR, Math.min(starR * 3.4, periPx * 0.7));
+      const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, glowR);
       glow.addColorStop(0, `${sColor}cc`);
       glow.addColorStop(1, "transparent");
       ctx.fillStyle = glow;
       ctx.beginPath();
-      ctx.arc(cx, cy, starR * 3.4, 0, Math.PI * 2);
+      ctx.arc(cx, cy, glowR, 0, Math.PI * 2);
       ctx.fill();
       ctx.beginPath();
       ctx.arc(cx, cy, starR, 0, Math.PI * 2);
@@ -112,15 +134,17 @@ const OrbitCanvas = ({ a, e = 0, hz, starTeff, planetName, height = 460 }) => {
       const r = rOf(theta) * scale;
       const px = cx + r * Math.cos(theta);
       const py = cy + r * Math.sin(theta);
-      const pGlow = ctx.createRadialGradient(px, py, 0, px, py, 16);
+      // на тесной орбите метка планеты не должна быть больше самой орбиты
+      const dotR = Math.max(2, Math.min(6.5, periPx * 0.3));
+      const pGlow = ctx.createRadialGradient(px, py, 0, px, py, dotR * 2.5);
       pGlow.addColorStop(0, "rgba(56,189,248,0.7)");
       pGlow.addColorStop(1, "transparent");
       ctx.fillStyle = pGlow;
       ctx.beginPath();
-      ctx.arc(px, py, 16, 0, Math.PI * 2);
+      ctx.arc(px, py, dotR * 2.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.beginPath();
-      ctx.arc(px, py, 6.5, 0, Math.PI * 2);
+      ctx.arc(px, py, dotR, 0, Math.PI * 2);
       ctx.fillStyle = "#38bdf8";
       ctx.strokeStyle = "rgba(255,255,255,0.85)";
       ctx.lineWidth = 1.4;
@@ -156,13 +180,21 @@ const OrbitCanvas = ({ a, e = 0, hz, starTeff, planetName, height = 460 }) => {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", resize);
     };
-  }, [a, e, hz, starTeff, planetName, height]);
+  }, [a, e, hz, starTeff, starRadius, planetName, height, t]);
 
   if (!a || a <= 0) return null;
 
   return (
     <div ref={wrapRef} className="w-full">
       <canvas ref={canvasRef} className="w-full rounded-xl" style={{ height }} />
+      {starEnlargedBy != null && (
+        <p className="text-xs text-slate-500 mt-1.5">
+          {starEnlargedBy === 0
+            ? t("Радиус звезды неизвестен — она нарисована условной точкой.", "The star's radius is unknown — it is drawn as a token dot.")
+            : t(`Звезда и орбита в одном масштабе, но в нём звезда была бы почти не видна, поэтому нарисована в ${fmt(starEnlargedBy, starEnlargedBy < 10 ? 1 : 0)} раза крупнее.`,
+              `The star and orbit share one scale, but at it the star would be barely visible, so it is drawn ${fmt(starEnlargedBy, starEnlargedBy < 10 ? 1 : 0)}× larger.`)}
+        </p>
+      )}
     </div>
   );
 };

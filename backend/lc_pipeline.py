@@ -80,8 +80,10 @@ def remove_nans(lc: LightCurve) -> LightCurve:
     return lc.take(~np.isnan(lc.flux))
 
 
-def sigma_clip_mask(data: np.ndarray, sigma: float, maxiters: int = 5) -> np.ndarray:
-    """astropy.stats.sigma_clip (центр — медиана, разброс — std): True = выброс."""
+def sigma_clip_mask(data: np.ndarray, sigma: float, maxiters: int = 5,
+                    lower: bool = True) -> np.ndarray:
+    """astropy.stats.sigma_clip (центр — медиана, разброс — std): True = выброс.
+    lower=False — режем только выбросы вверх (провалы-транзиты остаются)."""
     clipped = ~np.isfinite(data)
     for _ in range(maxiters):
         good = data[~clipped]
@@ -89,15 +91,17 @@ def sigma_clip_mask(data: np.ndarray, sigma: float, maxiters: int = 5) -> np.nda
             break
         center, std = np.median(good), np.std(good)
         with np.errstate(invalid="ignore"):
-            new = clipped | (data < center - sigma * std) | (data > center + sigma * std)
+            new = clipped | (data > center + sigma * std)
+            if lower:
+                new |= data < center - sigma * std
         if new.sum() == clipped.sum():
             break
         clipped = new
     return clipped
 
 
-def remove_outliers(lc: LightCurve, sigma: float) -> LightCurve:
-    return lc.take(~sigma_clip_mask(lc.flux, sigma))
+def remove_outliers(lc: LightCurve, sigma: float, lower: bool = True) -> LightCurve:
+    return lc.take(~sigma_clip_mask(lc.flux, sigma, lower=lower))
 
 
 # ---------- Савицкий — Голей (scipy.signal.savgol_filter, mode="interp") ----------
@@ -237,8 +241,13 @@ def bin_time_series(time_v: np.ndarray, flux_v: np.ndarray, bin_days: float) -> 
     return ((edges[:-1] + edges[1:]) / 2)[mask], sums[mask] / counts[mask]
 
 
-def prepare(lcs: List[LightCurve]) -> Optional[LightCurve]:
-    """Склейка → без NaN → без выбросов 6σ → нормировка → по времени (как раньше в server)."""
+def prepare(lcs: List[LightCurve], clip_dips: bool = True) -> Optional[LightCurve]:
+    """Склейка → без NaN → без выбросов 6σ → нормировка → по времени (как раньше в server).
+
+    clip_dips=True — как при обучении нейросети (lightkurve remove_outliers): режутся и
+    провалы, а у глубокого транзита это дно (у HD 189733 b — тысяча точек, глубина
+    мельчает на 20%). Для замеров транзита — clip_dips=False: только выбросы вверх.
+    """
     lc = stitch(lcs) if len(lcs) > 1 else lcs[0]
-    lc = normalize(remove_outliers(remove_nans(lc), sigma=6))
+    lc = normalize(remove_outliers(remove_nans(lc), sigma=6, lower=clip_dips))
     return lc.take(np.argsort(lc.time, kind="mergesort"))
